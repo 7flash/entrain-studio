@@ -8,14 +8,14 @@ let message = '';
 function App(){
   return <div className="panel">
     <div className="toolbar">
-      <div><strong>{state.authenticated ? `Wallet ${state.publicKey?.slice(0,4)}…${state.publicKey?.slice(-4)}` : 'Connect wallet'}</strong><div className="small">{message || (state.authenticated ? `${sessions.length} saved sessions` : 'Wallet session required to list saved sessions.')}</div></div>
+      <div><strong>{state.authenticated ? `Wallet ${state.publicKey?.slice(0,4)}…${state.publicKey?.slice(-4)}` : 'Connect wallet'}</strong><div className="small">{message || (state.authenticated ? `${sessions.length} saved tracks` : 'Wallet session required to list saved tracks.')}</div></div>
       <button className="btn primary" onClick={connect}>{state.authenticated ? 'Reconnect' : 'Connect Phantom'}</button>
     </div>
     <div className="list">
       {sessions.map((s)=><article className="card" key={s.id || s.createdAt}>
-        <div className="toolbar"><div><h3>{s.name}</h3><div className="small">{s.slug} · {new Date(s.createdAt).toLocaleString()}</div></div><button className="btn" onClick={()=>openSession(s)}>Open in studio</button></div>
+        <div className="toolbar"><div><h3>{s.name}</h3><div className="small">{s.slug} · {new Date(s.createdAt).toLocaleString()}</div></div><button className="btn" onClick={()=>openSession(s)}>Open in editor</button></div>
       </article>)}
-      {state.authenticated && !sessions.length ? <p className="muted">No saved sessions yet. Save from the studio.</p> : null}
+      {state.authenticated && !sessions.length ? <p className="muted">No saved tracks yet. Save from the studio.</p> : null}
     </div>
   </div>;
 }

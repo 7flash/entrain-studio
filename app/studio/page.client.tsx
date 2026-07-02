@@ -3,6 +3,7 @@ import type { EntrainLayerV1, EntrainSessionV1, LayerType } from '@/format/entra
 import { defaultSession, sanitizeSession } from '@/format/entrain-format';
 import { createAudioEngine } from '@/client/audio-engine';
 import { decodeSessionHash, encodeSessionHash } from '@/client/session-codec';
+import { connectAndVerify } from '@/client/wallet';
 
 let session: EntrainSessionV1 = defaultSession();
 let engine = createAudioEngine(() => session);
@@ -26,11 +27,12 @@ function App() {
         </div>
         <div className="tagrow">
           <button className="btn primary" onClick={toggle}>{engine.running ? 'Stop' : 'Start'}</button>
-          <button className="btn" onClick={addLayer}>+ Tone layer</button>
+          <button className="btn" onClick={addLayer}>+ Tone</button>
           <button className="btn" onClick={addNoise}>+ Noise</button>
           <button className="btn" onClick={addAmbience}>+ Ambience</button>
           <button className="btn" onClick={copyShareUrl}>Copy share URL</button>
-          <button className="btn" onClick={saveServer}>Save to wallet</button>
+          <button className="btn" onClick={saveServer}>Save private</button>
+          <button className="btn" onClick={sendAdminDraft}>Admin draft</button>
           <button className="btn" disabled={exportBusy} onClick={exportWav}>{exportBusy ? 'Rendering…' : 'Render WAV'}</button>
           <button className="btn" onClick={exportJson}>Export JSON</button>
           <label className="btn">Import JSON<input type="file" accept=".json,application/json" style={{ display:'none' }} onChange={importJson} /></label>
@@ -122,7 +124,19 @@ function exportJson() { session=sanitizeSession(session); downloadBlob(new Blob(
 async function exportWav() { exportBusy=true; notice='rendering WAV locally…'; repaint(); try { const r=await engine.renderWav(undefined, session.export?.sampleRate, session.export?.fadeSec); downloadBlob(r.blob, r.filename); notice=`saved ${r.filename} · ${(r.blob.size/1048576).toFixed(1)} MB`; } catch(e:any) { notice=e.message || 'render failed'; } exportBusy=false; repaint(); }
 async function importJson(e: any) { const f=e.currentTarget.files?.[0]; if(!f)return; session = sanitizeSession(JSON.parse(await f.text())); engine.stop(); engine = createAudioEngine(() => session); notice='imported session'; repaint(); }
 async function copyShareUrl() { const h=await encodeSessionHash(session); const url=location.origin + location.pathname + h; await navigator.clipboard.writeText(url).catch(()=>{}); history.replaceState(null,'',h); notice='share URL copied; ambience files still need to be reloaded by the recipient'; repaint(); }
-async function saveServer() { try { const res=await fetch('/api/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:session.name,slug:'custom',session:sanitizeSession(session)})}).then(r=>r.json()); notice=res.ok?'saved to wallet library':(res.error || 'save failed'); } catch(e:any){ notice=e.message || 'save failed'; } repaint(); }
+function sendAdminDraft() { sessionStorage.setItem('entrain:admin-draft', JSON.stringify(sanitizeSession(session))); notice='copied current track to admin draft'; repaint(); }
+async function saveServer() {
+  try {
+    let res=await fetch('/api/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:session.name,slug:'custom',session:sanitizeSession(session)})}).then(r=>r.json());
+    if(!res.ok && /wallet/i.test(res.error || '')) {
+      notice='connect Phantom to save to your private library…'; repaint();
+      await connectAndVerify();
+      res=await fetch('/api/sessions',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:session.name,slug:'custom',session:sanitizeSession(session)})}).then(r=>r.json());
+    }
+    notice=res.ok?'saved to private wallet library':(res.error || 'save failed');
+  } catch(e:any){ notice=e.message || 'save failed'; }
+  repaint();
+}
 function repaint(rebuild=false) { if (rebuild && engine.running) engine.rebuild(); render(<App />, document.getElementById('studio-root')!); }
 function draw(){ if(!engine.running) return; const canvas=document.getElementById('scope-canvas') as HTMLCanvasElement|null; if(canvas) engine.drawScope(canvas); requestAnimationFrame(draw); }
 

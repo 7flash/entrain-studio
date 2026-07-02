@@ -5,7 +5,7 @@ const safeName = (s: string) => String(s || 'entrain').replace(/[^\w.-]+/g, '_')
 
 type Graph = { ctx: AudioContext; master: GainNode; analyser: AnalyserNode; stops: AudioScheduledSourceNode[]; startedAt: number };
 
-type BuildOptions = { live: boolean; durSec: number; fadeSec?: number; sampleRate?: number };
+type BuildOptions = { live: boolean; durSec: number; fadeSec?: number; sampleRate?: number; loopPattern?: boolean };
 
 export function createAudioEngine(getSession: () => EntrainSessionV1) {
   let ctx: AudioContext | null = null;
@@ -131,7 +131,17 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     }
     const stops: AudioScheduledSourceNode[]=[];
     const layers=audibleLayers(session);
-    for (const l of layers) { const out=buildLayer(ctx,l,start,dur,layers.length || 1); out.node.connect(master); stops.push(...out.stops); }
+    const patternSec = Math.max(1, session.durationMin * 60);
+    const cycles = opts.loopPattern ? Math.max(1, Math.ceil(dur / patternSec)) : 1;
+    for (let i = 0; i < cycles; i++) {
+      const cycleStart = start + (opts.loopPattern ? i * patternSec : 0);
+      const cycleDur = opts.loopPattern ? Math.min(patternSec, dur - i * patternSec) : dur;
+      if (cycleDur <= 0.02) continue;
+      for (const l of layers) {
+        const out=buildLayer(ctx,l,cycleStart,cycleDur,layers.length || 1);
+        out.node.connect(master); stops.push(...out.stops);
+      }
+    }
     const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-16; comp.knee.value=18; comp.ratio.value=8; comp.attack.value=.008; comp.release.value=.18; master.connect(comp);
     if (opts.live) {
       const analyser=(ctx as AudioContext).createAnalyser(); analyser.fftSize=2048; comp.connect(analyser); analyser.connect(dest); return { master, analyser, stops, startedAt:start };
@@ -142,20 +152,22 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
   return {
     get running(){ return !!graph; },
     samples,
-    async start(){ ctx = ctx || new AudioContext(); await ctx.resume(); const session=getSession(); const built = build(ctx,ctx.destination,{ live:true, durSec:session.durationMin*60, fadeSec:session.export?.fadeSec || 0 }); graph={ ctx, master:built.master, analyser:built.analyser!, stops:built.stops, startedAt:built.startedAt }; },
+    async start(opts?: { loopPattern?: boolean }){ ctx = ctx || new AudioContext(); await ctx.resume(); const session=getSession(); const liveSec = opts?.loopPattern ? Math.max(session.durationMin*60, 8*60*60) : session.durationMin*60; const built = build(ctx,ctx.destination,{ live:true, durSec:liveSec, fadeSec:session.export?.fadeSec || 0, loopPattern: !!opts?.loopPattern }); graph={ ctx, master:built.master, analyser:built.analyser!, stops:built.stops, startedAt:built.startedAt }; },
     stop(){ if(!graph) return; const current=graph; const t=current.ctx.currentTime; current.master.gain.setTargetAtTime(0.0001,t,.04); setTimeout(()=>current.stops.forEach(s=>{try{s.stop()}catch{}}),180); graph=null; },
     rebuild(){ const was=!!graph; this.stop(); if(was) setTimeout(()=>this.start(),120); },
     async loadSample(layerId:string, file:File){ ctx = ctx || new AudioContext(); samples.set(layerId, await ctx.decodeAudioData(await file.arrayBuffer())); },
     hasSample(layerId:string){ return samples.has(layerId); },
-    async renderWav(seconds?: number, sampleRate?: number, fadeSec?: number) {
+    async renderWav(seconds?: number, sampleRate?: number, fadeSec?: number, opts?: { loopPattern?: boolean; repetitions?: number }) {
       const session = getSession();
-      const durSec = Math.max(1, Math.min(seconds || session.durationMin * 60, 180 * 60));
+      const requested = opts?.repetitions ? session.durationMin * 60 * opts.repetitions : (seconds || session.durationMin * 60);
+      const durSec = Math.max(1, Math.min(requested, 180 * 60));
       const sr = sampleRate || session.export?.sampleRate || 44100;
       const off = new OfflineAudioContext(2, Math.floor(sr * durSec), sr);
-      build(off, off.destination, { live:false, durSec, fadeSec: fadeSec ?? session.export?.fadeSec ?? 4 });
+      build(off, off.destination, { live:false, durSec, fadeSec: fadeSec ?? session.export?.fadeSec ?? 4, loopPattern: !!(opts?.loopPattern || opts?.repetitions) });
       const buf = await off.startRendering();
       const blob = bufferToWav(buf);
-      return { blob, filename: `${safeName(session.name)}_${Math.round(durSec/60)}min.wav` };
+      const suffix = opts?.repetitions ? `${opts.repetitions}x` : `${Math.round(durSec/60)}min`;
+      return { blob, filename: `${safeName(session.name)}_${suffix}.wav` };
     },
     drawScope(canvas: HTMLCanvasElement){ if(!graph)return; const r=canvas.getBoundingClientRect(), d=devicePixelRatio||1; canvas.width=r.width*d; canvas.height=r.height*d; const x=canvas.getContext('2d')!; x.setTransform(d,0,0,d,0,0); const arr=new Uint8Array(graph.analyser.fftSize); graph.analyser.getByteTimeDomainData(arr); x.clearRect(0,0,r.width,r.height); x.strokeStyle='#54dccf'; x.beginPath(); arr.forEach((v,i)=>{ const px=i/(arr.length-1)*r.width, py=r.height/2+((v-128)/128)*r.height*.42; i?x.lineTo(px,py):x.moveTo(px,py); }); x.stroke(); }
   };
