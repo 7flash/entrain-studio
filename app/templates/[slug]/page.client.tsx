@@ -1,5 +1,5 @@
 import { render, navigate } from 'tradjs/client';
-import { connectAndVerify, getWalletState } from '@/client/wallet';
+import { connectAndVerify, getWalletState, refreshWalletBalance } from '@/client/wallet';
 
 let message = '';
 
@@ -22,6 +22,11 @@ export default function mount() {
     if (!res.ok && res.requiresWallet) {
       message = 'connect and sign to unlock this template…'; paint();
       await connectAndVerify();
+      res = await fetch(`/api/access?slug=${encodeURIComponent(slug)}`).then((r) => r.json());
+    }
+    if (!res.ok && res.staleBalance) {
+      message = 'refreshing balance…'; paint();
+      await refreshWalletBalance();
       res = await fetch(`/api/access?slug=${encodeURIComponent(slug)}`).then((r) => r.json());
     }
     btn.disabled = false;

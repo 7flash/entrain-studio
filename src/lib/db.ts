@@ -1,5 +1,5 @@
 import { Database, z } from 'sqlite-zod-orm';
-import type { EntrainSessionV1 } from '@/format/entrain-format';
+import type { EntrainSessionV1, TemplateTier } from '@/format/entrain-format';
 
 export const db = new Database(process.env.DB_PATH || 'entrain.db', {
   templates: z.object({
@@ -8,8 +8,10 @@ export const db = new Database(process.env.DB_PATH || 'entrain.db', {
     summary: z.string(),
     description: z.string(),
     category: z.string().default('focus'),
+    tier: z.string().default('free'),
     tags: z.array(z.string()).default([]),
     minTokens: z.number().default(0),
+    unlockNote: z.string().optional(),
     session: z.any(),
     sortOrder: z.number().default(0),
     isPublished: z.boolean().default(true),
@@ -26,12 +28,15 @@ export const db = new Database(process.env.DB_PATH || 'entrain.db', {
     publicKey: z.string(),
     balance: z.number().default(0),
     expiresAt: z.number(),
+    lastRefreshedAt: z.number().default(0),
   }),
   savedSessions: z.object({
     publicKey: z.string(),
     slug: z.string(),
     name: z.string(),
     session: z.any(),
+    createdAt: z.number(),
+    updatedAt: z.number().optional(),
   }),
 }, {
   timestamps: true,
@@ -45,8 +50,10 @@ export type TemplateRow = {
   summary: string;
   description: string;
   category: string;
+  tier: TemplateTier;
   tags: string[];
   minTokens: number;
+  unlockNote?: string;
   session: EntrainSessionV1;
   sortOrder: number;
   isPublished: boolean;

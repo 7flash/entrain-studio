@@ -11,7 +11,17 @@ const SESSION_MS = 12 * 60 * 60_000;
 export function createChallenge(publicKey: string) {
   return authMeasure.measure.assert('Create challenge', () => {
     const nonce = crypto.randomUUID();
-    const message = `ENTRAIN wallet login\n\nWallet: ${publicKey}\nNonce: ${nonce}\nIssued: ${new Date().toISOString()}\n\nSign this message to verify wallet ownership. This does not authorize a transaction.`;
+    const issuedAt = new Date().toISOString();
+    const message = [
+      'ENTRAIN wallet login',
+      '',
+      `Wallet: ${publicKey}`,
+      `Nonce: ${nonce}`,
+      `Issued: ${issuedAt}`,
+      `Origin: ${process.env.PUBLIC_ORIGIN || 'local-dev'}`,
+      '',
+      'Sign this message to verify wallet ownership. This does not authorize a transaction.'
+    ].join('\n');
     db.walletChallenges.insert({ publicKey, nonce, message, expiresAt: Date.now() + CHALLENGE_MS, used: false });
     return { nonce, message, expiresAt: Date.now() + CHALLENGE_MS };
   });
@@ -29,11 +39,25 @@ export async function verifyWallet(publicKey: string, signature: string, nonce: 
     const ok = await verify(sigBytes, msgBytes, pubBytes);
     if (!ok) throw new Error('Invalid wallet signature');
 
-    challenge.used = true;
+    try { challenge.used = true; } catch {}
+    return await createWalletSession(publicKey);
+  });
+}
+
+export async function createWalletSession(publicKey: string) {
+  return await authMeasure.measure.assert('Create wallet session', async () => {
     const balance = ALLOW_DEV_UNLOCK ? 999999 : await getTokenBalance(publicKey);
     const sessionId = crypto.randomUUID();
-    db.walletSessions.insert({ sessionId, publicKey, balance, expiresAt: Date.now() + SESSION_MS });
-    return { sessionId, publicKey, balance, maxAgeSec: Math.floor(SESSION_MS / 1000) };
+    db.walletSessions.insert({ sessionId, publicKey, balance, expiresAt: Date.now() + SESSION_MS, lastRefreshedAt: Date.now() });
+    return { sessionId, publicKey, balance, maxAgeSec: Math.floor(SESSION_MS / 1000), expiresAt: Date.now() + SESSION_MS };
+  });
+}
+
+export async function refreshWalletSession(sessionId?: string | null) {
+  return await authMeasure.measure.assert('Refresh wallet session', async () => {
+    const current = getAuthSession(sessionId);
+    if (!current) throw new Error('Wallet session required');
+    return await createWalletSession(current.publicKey);
   });
 }
 
@@ -41,5 +65,11 @@ export function getAuthSession(sessionId?: string | null) {
   if (!sessionId) return null;
   const row = db.walletSessions.select().where({ sessionId }).first() as any;
   if (!row || row.expiresAt < Date.now()) return null;
-  return { publicKey: row.publicKey as string, balance: Number(row.balance || 0), expiresAt: Number(row.expiresAt) };
+  return {
+    sessionId,
+    publicKey: row.publicKey as string,
+    balance: Number(row.balance || 0),
+    expiresAt: Number(row.expiresAt),
+    lastRefreshedAt: Number(row.lastRefreshedAt || 0),
+  };
 }

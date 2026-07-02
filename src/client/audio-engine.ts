@@ -1,33 +1,41 @@
 import type { EntrainLayerV1, EntrainSessionV1, Keyframe } from '@/format/entrain-format';
 
 const clamp = (v:number,a:number,b:number)=>Math.max(a,Math.min(b,v));
+const safeName = (s: string) => String(s || 'entrain').replace(/[^\w.-]+/g, '_').slice(0, 90);
 
-type Graph = { ctx: AudioContext; master: GainNode; analyser: AnalyserNode; stops: AudioScheduledSourceNode[] };
+type Graph = { ctx: AudioContext; master: GainNode; analyser: AnalyserNode; stops: AudioScheduledSourceNode[]; startedAt: number };
+
+type BuildOptions = { live: boolean; durSec: number; fadeSec?: number; sampleRate?: number };
 
 export function createAudioEngine(getSession: () => EntrainSessionV1) {
   let ctx: AudioContext | null = null;
   let graph: Graph | null = null;
   const samples = new Map<string, AudioBuffer>();
 
+  function sorted(pts: Keyframe[]) { return [...(pts || [])].sort((a,b)=>a.tMin-b.tMin); }
   function tlVal(pts: Keyframe[], key: 'beatHz'|'gainPct', tMin: number) {
-    const sorted = [...pts].sort((a,b)=>a.tMin-b.tMin);
-    if (!sorted.length) return 0;
-    if (tMin <= sorted[0].tMin) return Number(sorted[0][key] || 0);
-    for (let i=1;i<sorted.length;i++) if (tMin <= sorted[i].tMin) {
-      const a=sorted[i-1], b=sorted[i], f=(tMin-a.tMin)/Math.max(1e-9,b.tMin-a.tMin);
+    const p = sorted(pts);
+    if (!p.length) return 0;
+    if (tMin <= p[0].tMin) return Number(p[0][key] || 0);
+    for (let i=1;i<p.length;i++) if (tMin <= p[i].tMin) {
+      const a=p[i-1], b=p[i], f=(tMin-a.tMin)/Math.max(1e-9,b.tMin-a.tMin);
       return Number(a[key] || 0) + (Number(b[key] || 0)-Number(a[key] || 0))*f;
     }
-    return Number(sorted[sorted.length-1][key] || 0);
+    return Number(p[p.length-1][key] || 0);
   }
   function scheduleParam(param: AudioParam, pts: Keyframe[], key: 'beatHz'|'gainPct', map:(x:number)=>number, start:number, durSec:number) {
     param.setValueAtTime(map(tlVal(pts,key,0)), start);
-    for (const p of [...pts].sort((a,b)=>a.tMin-b.tMin)) {
+    for (const p of sorted(pts)) {
       const rel = p.tMin * 60;
       if (rel <= 0.01 || rel > durSec) continue;
       param.linearRampToValueAtTime(map(Number(p[key] || 0)), start + rel);
     }
   }
-  function buildLayer(ctx: AudioContext, l: EntrainLayerV1, start:number, durSec:number, count:number) {
+  function audibleLayers(session: EntrainSessionV1) {
+    const solo = session.layers.some((l) => l.solo);
+    return session.layers.filter((l) => !l.mute && (!solo || l.solo));
+  }
+  function buildLayer(ctx: BaseAudioContext, l: EntrainLayerV1, start:number, durSec:number, count:number) {
     const layerGain = ctx.createGain();
     scheduleParam(layerGain.gain, l.keyframes, 'gainPct', v => (v/100) * (0.55/Math.sqrt(Math.max(1,count))), start, durSec);
     let input: AudioNode = layerGain;
@@ -36,17 +44,20 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       const p = ctx.createStereoPanner();
       const staticPan = clamp(l.pan || 0, -1, 1);
       p.pan.setValueAtTime(staticPan, start);
-      if ((l.panMotion?.rateHz || 0) > 0) {
-        const lfo = ctx.createOscillator(); lfo.type='sine'; lfo.frequency.value=clamp(l.panMotion!.rateHz,0,0.25);
-        const pg = ctx.createGain(); pg.gain.value=clamp(l.panMotion!.depth,0,1) * (1 - Math.abs(staticPan));
+      const rate = clamp(l.panMotion?.rateHz || 0, 0, 0.25);
+      if (rate > 0) {
+        const lfo = ctx.createOscillator(); lfo.type='sine'; lfo.frequency.value=rate;
+        const pg = ctx.createGain(); pg.gain.value=clamp(l.panMotion?.depth || 0,0,1) * (1 - Math.abs(staticPan));
         lfo.connect(pg); pg.connect(p.pan); lfo.start(start); lfo.stop(start+durSec+.1); stops.push(lfo);
       }
       p.connect(layerGain); input = p;
     }
     const stopAt = start + durSec + .1;
     if (l.type === 'sample') {
-      const b = samples.get(l.id); if (!b) return { node: layerGain, stops };
-      const src = ctx.createBufferSource(); src.buffer=b; src.loop=true; src.connect(input); src.start(start); src.stop(stopAt); stops.push(src); return { node: layerGain, stops };
+      const b = samples.get(l.id);
+      if (!b) return { node: layerGain, stops };
+      scheduleSample(ctx, l, b, input, start, stopAt, stops);
+      return { node: layerGain, stops };
     }
     if (l.type === 'noise') {
       const src = noise(ctx, l.noiseColor || 'pink'); src.connect(input); src.start(start); src.stop(stopAt); stops.push(src); return { node: layerGain, stops };
@@ -54,7 +65,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     if (l.type === 'carrier') {
       const o = ctx.createOscillator(); o.type='sine'; o.frequency.value=l.carrierHz || 220; o.connect(input); o.start(start); o.stop(stopAt); stops.push(o); return { node: layerGain, stops };
     }
-    const carrier = l.carrierHz || 220;
+    const carrier = clamp(l.carrierHz || 220, 20, 2000);
     if (l.type === 'binaural' || l.type === 'monaural') {
       const a=ctx.createOscillator(), b=ctx.createOscillator(); a.type=b.type=l.wave||'sine';
       scheduleParam(a.frequency,l.keyframes,'beatHz', hz=>Math.max(20,carrier-hz/2), start, durSec);
@@ -73,28 +84,96 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     lfo.connect(mg); mg.connect(amp.gain); off.connect(amp.gain); car.connect(amp); amp.connect(input);
     car.start(start); lfo.start(start); off.start(start); car.stop(stopAt); lfo.stop(stopAt); off.stop(stopAt); stops.push(car,lfo,off); return { node: layerGain, stops };
   }
-  function build() {
-    if (!ctx) throw new Error('no context');
-    const session=getSession(), start=ctx.currentTime+.04, dur=session.durationMin*60;
-    const master=ctx.createGain(); master.gain.setValueAtTime(0,start); master.gain.linearRampToValueAtTime(.75,start+.8);
-    const stops: AudioScheduledSourceNode[]=[];
-    const layers=session.layers;
-    for (const l of layers) { const out=buildLayer(ctx,l,start,dur,layers.length); out.node.connect(master); stops.push(...out.stops); }
-    const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-16; comp.ratio.value=8; master.connect(comp);
-    const analyser=ctx.createAnalyser(); analyser.fftSize=2048; comp.connect(analyser); analyser.connect(ctx.destination);
-    graph={ctx,master,analyser,stops};
+
+  function scheduleSample(ctx: BaseAudioContext, l: EntrainLayerV1, buffer: AudioBuffer, input: AudioNode, start: number, stopAt: number, stops: AudioScheduledSourceNode[]) {
+    const loop = l.sampleLoop || { mode: 'native' as const };
+    const loopStart = clamp(loop.startSec || 0, 0, Math.max(0, buffer.duration - 0.05));
+    const loopEnd = clamp(loop.endSec && loop.endSec > loopStart ? loop.endSec : buffer.duration, loopStart + 0.05, buffer.duration);
+    const xfade = clamp(loop.crossfadeSec || 0, 0, Math.max(0, (loopEnd - loopStart) / 2));
+    if (loop.mode !== 'crossfade' || xfade < 0.02) {
+      const src = ctx.createBufferSource(); src.buffer=buffer; src.loop=true; src.loopStart=loopStart; src.loopEnd=loopEnd;
+      src.connect(input); src.start(start, loopStart); src.stop(stopAt); stops.push(src); return;
+    }
+    const segment = loopEnd - loopStart;
+    const hop = Math.max(0.1, segment - xfade);
+    let t = start;
+    let first = true;
+    let guard = 0;
+    while (t < stopAt && guard++ < 5000) {
+      const dur = Math.min(segment, stopAt - t);
+      if (dur <= 0.02) break;
+      const src = ctx.createBufferSource(); src.buffer = buffer;
+      const g = ctx.createGain();
+      const fade = Math.min(xfade, dur / 2);
+      g.gain.setValueAtTime(first ? 1 : 0.0001, t);
+      if (!first) g.gain.linearRampToValueAtTime(1, t + fade);
+      g.gain.setValueAtTime(1, Math.max(t, t + dur - fade));
+      g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      src.connect(g); g.connect(input);
+      src.start(t, loopStart, dur + 0.01);
+      stops.push(src);
+      first = false;
+      t += hop;
+    }
   }
+
+  function build(ctx: BaseAudioContext, dest: AudioNode, opts: BuildOptions) {
+    const session=getSession(), start=ctx.currentTime + (opts.live ? .04 : 0), dur=opts.durSec || session.durationMin*60;
+    const master=ctx.createGain();
+    const peak = .75;
+    const fadeIn = Math.max(0.02, Math.min(opts.fadeSec ?? .8, dur/2));
+    master.gain.setValueAtTime(0.0001,start);
+    master.gain.linearRampToValueAtTime(peak,start+fadeIn);
+    if (!opts.live && (opts.fadeSec || 0) > 0) {
+      const outStart = Math.max(start, start + dur - (opts.fadeSec || 0));
+      master.gain.setValueAtTime(peak, outStart);
+      master.gain.linearRampToValueAtTime(0.0001, start + dur);
+    }
+    const stops: AudioScheduledSourceNode[]=[];
+    const layers=audibleLayers(session);
+    for (const l of layers) { const out=buildLayer(ctx,l,start,dur,layers.length || 1); out.node.connect(master); stops.push(...out.stops); }
+    const comp=ctx.createDynamicsCompressor(); comp.threshold.value=-16; comp.knee.value=18; comp.ratio.value=8; comp.attack.value=.008; comp.release.value=.18; master.connect(comp);
+    if (opts.live) {
+      const analyser=(ctx as AudioContext).createAnalyser(); analyser.fftSize=2048; comp.connect(analyser); analyser.connect(dest); return { master, analyser, stops, startedAt:start };
+    }
+    comp.connect(dest); return { master, analyser:null, stops, startedAt:start };
+  }
+
   return {
     get running(){ return !!graph; },
-    async start(){ ctx = ctx || new AudioContext(); await ctx.resume(); build(); },
-    stop(){ if(!graph) return; const t=graph.ctx.currentTime; graph.master.gain.setTargetAtTime(0.0001,t,.04); setTimeout(()=>graph?.stops.forEach(s=>{try{s.stop()}catch{}}),180); graph=null; },
+    samples,
+    async start(){ ctx = ctx || new AudioContext(); await ctx.resume(); const session=getSession(); const built = build(ctx,ctx.destination,{ live:true, durSec:session.durationMin*60, fadeSec:session.export?.fadeSec || 0 }); graph={ ctx, master:built.master, analyser:built.analyser!, stops:built.stops, startedAt:built.startedAt }; },
+    stop(){ if(!graph) return; const current=graph; const t=current.ctx.currentTime; current.master.gain.setTargetAtTime(0.0001,t,.04); setTimeout(()=>current.stops.forEach(s=>{try{s.stop()}catch{}}),180); graph=null; },
     rebuild(){ const was=!!graph; this.stop(); if(was) setTimeout(()=>this.start(),120); },
     async loadSample(layerId:string, file:File){ ctx = ctx || new AudioContext(); samples.set(layerId, await ctx.decodeAudioData(await file.arrayBuffer())); },
+    hasSample(layerId:string){ return samples.has(layerId); },
+    async renderWav(seconds?: number, sampleRate?: number, fadeSec?: number) {
+      const session = getSession();
+      const durSec = Math.max(1, Math.min(seconds || session.durationMin * 60, 180 * 60));
+      const sr = sampleRate || session.export?.sampleRate || 44100;
+      const off = new OfflineAudioContext(2, Math.floor(sr * durSec), sr);
+      build(off, off.destination, { live:false, durSec, fadeSec: fadeSec ?? session.export?.fadeSec ?? 4 });
+      const buf = await off.startRendering();
+      const blob = bufferToWav(buf);
+      return { blob, filename: `${safeName(session.name)}_${Math.round(durSec/60)}min.wav` };
+    },
     drawScope(canvas: HTMLCanvasElement){ if(!graph)return; const r=canvas.getBoundingClientRect(), d=devicePixelRatio||1; canvas.width=r.width*d; canvas.height=r.height*d; const x=canvas.getContext('2d')!; x.setTransform(d,0,0,d,0,0); const arr=new Uint8Array(graph.analyser.fftSize); graph.analyser.getByteTimeDomainData(arr); x.clearRect(0,0,r.width,r.height); x.strokeStyle='#54dccf'; x.beginPath(); arr.forEach((v,i)=>{ const px=i/(arr.length-1)*r.width, py=r.height/2+((v-128)/128)*r.height*.42; i?x.lineTo(px,py):x.moveTo(px,py); }); x.stroke(); }
   };
 }
-function noise(ctx: AudioContext, color:string) {
-  const len=ctx.sampleRate*2, buf=ctx.createBuffer(2,len,ctx.sampleRate);
+function noise(ctx: BaseAudioContext, color:string) {
+  const len=Math.floor(ctx.sampleRate*2), buf=ctx.createBuffer(2,len,ctx.sampleRate);
   for(let ch=0;ch<2;ch++){ const d=buf.getChannelData(ch); let last=0,b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0; for(let i=0;i<len;i++){ const w=Math.random()*2-1; if(color==='white')d[i]=w; else if(color==='brown'){ last=(last+.02*w)/1.02; d[i]=last*3.5; } else { b0=.99886*b0+w*.0555179; b1=.99332*b1+w*.0750759; b2=.969*b2+w*.153852; b3=.8665*b3+w*.3104856; b4=.55*b4+w*.5329522; b5=-.7616*b5-w*.016898; d[i]=(b0+b1+b2+b3+b4+b5+b6+w*.5362)*.11; b6=w*.115926; } } }
   const src=ctx.createBufferSource(); src.buffer=buf; src.loop=true; return src;
+}
+function bufferToWav(buf: AudioBuffer) {
+  const n=buf.length,ch=Math.min(2,buf.numberOfChannels),sr=buf.sampleRate;
+  const ab=new ArrayBuffer(44+n*ch*2),dv=new DataView(ab);
+  const wr=(o:number,s:string)=>{for(let i=0;i<s.length;i++)dv.setUint8(o+i,s.charCodeAt(i));};
+  wr(0,'RIFF'); dv.setUint32(4,36+n*ch*2,true); wr(8,'WAVE'); wr(12,'fmt ');
+  dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,ch,true);
+  dv.setUint32(24,sr,true); dv.setUint32(28,sr*ch*2,true); dv.setUint16(32,ch*2,true); dv.setUint16(34,16,true);
+  wr(36,'data'); dv.setUint32(40,n*ch*2,true);
+  const data=[]; for(let c=0;c<ch;c++)data.push(buf.getChannelData(c));
+  let o=44; for(let i=0;i<n;i++)for(let c=0;c<ch;c++){ const v=clamp(data[c][i],-1,1); dv.setInt16(o,v<0?v*0x8000:v*0x7fff,true); o+=2; }
+  return new Blob([ab],{type:'audio/wav'});
 }

@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   if (!body?.publicKey || !body.signature || !body.nonce) return json({ ok: false, error: 'publicKey, nonce, signature required' }, { status: 400 });
   try {
     const result = await verifyWallet(body.publicKey, body.signature, body.nonce);
-    return json({ ok: true, publicKey: result.publicKey, balance: result.balance }, { headers: { 'set-cookie': sessionCookie(result.sessionId, result.maxAgeSec) } });
+    return json({ ok: true, publicKey: result.publicKey, balance: result.balance, expiresAt: result.expiresAt }, { headers: { 'set-cookie': sessionCookie(result.sessionId, result.maxAgeSec) } });
   } catch (e: any) {
     return json({ ok: false, error: e.message || 'verification failed' }, { status: 401 });
   }

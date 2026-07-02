@@ -15,6 +15,7 @@ export default function RootLayout({ children }: { children: any }) {
             <div className="navlinks">
               <a href="/templates">Templates</a>
               <a href="/studio">Studio</a>
+              <a href="/library">Library</a>
               <span id="wallet-root" />
             </div>
           </nav>

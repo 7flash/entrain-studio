@@ -7,9 +7,17 @@ type PhantomProvider = {
 
 declare global { interface Window { phantom?: { solana?: PhantomProvider }; solana?: PhantomProvider } }
 
-export async function getWalletState(): Promise<{ authenticated: boolean; publicKey: string | null; balance: number }> {
+export type WalletState = { authenticated: boolean; publicKey: string | null; balance: number; expiresAt?: number | null };
+
+export async function getWalletState(): Promise<WalletState> {
   const r = await fetch('/api/auth/session').then((x) => x.json()).catch(() => ({ authenticated: false }));
-  return { authenticated: !!r.authenticated, publicKey: r.publicKey || null, balance: Number(r.balance || 0) };
+  return { authenticated: !!r.authenticated, publicKey: r.publicKey || null, balance: Number(r.balance || 0), expiresAt: r.expiresAt || null };
+}
+
+export async function refreshWalletBalance() {
+  const r = await fetch('/api/auth/refresh', { method:'POST' }).then((x) => x.json());
+  if (!r.ok) throw new Error(r.error || 'refresh failed');
+  return { authenticated: true, publicKey: r.publicKey || null, balance: Number(r.balance || 0), expiresAt: r.expiresAt || null } as WalletState;
 }
 
 export async function connectAndVerify() {
@@ -27,7 +35,14 @@ export async function connectAndVerify() {
   const signature = base58Encode(signed.signature);
   const verified = await fetch('/api/auth/verify', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ publicKey, nonce: challenge.nonce, signature }) }).then((r)=>r.json());
   if (!verified.ok) throw new Error(verified.error || 'verify failed');
-  return { authenticated: true, publicKey, balance: Number(verified.balance || 0) };
+  return { authenticated: true, publicKey, balance: Number(verified.balance || 0), expiresAt: verified.expiresAt || null } as WalletState;
+}
+
+export function tierLabel(minTokens: number) {
+  if (minTokens >= 100) return 'collector';
+  if (minTokens >= 10) return 'pro';
+  if (minTokens >= 1) return 'holder';
+  return 'free';
 }
 
 const alphabet = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
