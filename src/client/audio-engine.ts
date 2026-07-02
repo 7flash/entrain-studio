@@ -24,6 +24,7 @@ type BuildOptions = {
   fadeSec?: number;
   sampleRate?: number;
   loopPattern?: boolean;
+  offsetSec?: number;
 };
 
 export function createAudioEngine(getSession: () => EntrainSessionV1) {
@@ -56,10 +57,12 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     map: (x: number) => number,
     start: number,
     durSec: number,
+    offsetSec = 0,
   ) {
-    param.setValueAtTime(map(tlVal(pts, key, 0)), start);
+    const offsetMin = Math.max(0, offsetSec) / 60;
+    param.setValueAtTime(map(tlVal(pts, key, offsetMin)), start);
     for (const p of sorted(pts)) {
-      const rel = p.tMin * 60;
+      const rel = p.tMin * 60 - offsetSec;
       if (rel <= 0.01 || rel > durSec) continue;
       param.linearRampToValueAtTime(map(Number(p[key] || 0)), start + rel);
     }
@@ -74,6 +77,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     start: number,
     durSec: number,
     count: number,
+    offsetSec = 0,
   ) {
     const layerGain = ctx.createGain();
     scheduleParam(
@@ -83,6 +87,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       (v) => (v / 100) * (0.55 / Math.sqrt(Math.max(1, count))),
       start,
       durSec,
+      offsetSec,
     );
     let input: AudioNode = layerGain;
     const stops: AudioScheduledSourceNode[] = [];
@@ -111,7 +116,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     if (l.type === "sample") {
       const b = samples.get(l.id);
       if (!b) return { node: layerGain, stops };
-      scheduleSample(ctx, l, b, input, start, stopAt, stops);
+      scheduleSample(ctx, l, b, input, start, stopAt, stops, offsetSec);
       return { node: layerGain, stops };
     }
     if (l.type === "noise") {
@@ -156,6 +161,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
         (hz) => Math.max(20, carrier - hz / 2),
         start,
         durSec,
+        offsetSec,
       );
       scheduleParam(
         b.frequency,
@@ -164,6 +170,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
         (hz) => Math.max(20, carrier + hz / 2),
         start,
         durSec,
+        offsetSec,
       );
       const ga = ctx.createGain(),
         gb = ctx.createGain();
@@ -202,6 +209,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       (hz) => Math.max(0.1, hz),
       start,
       durSec,
+      offsetSec,
     );
     const mg = ctx.createGain();
     mg.gain.value = l.type === "iso-hard" ? 0.47 : 0.4;
@@ -230,6 +238,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     start: number,
     stopAt: number,
     stops: AudioScheduledSourceNode[],
+    offsetSec = 0,
   ) {
     const loop = l.sampleLoop || { mode: "native" as const };
     const loopStart = clamp(
@@ -253,31 +262,42 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       src.loop = true;
       src.loopStart = loopStart;
       src.loopEnd = loopEnd;
+      const segment = Math.max(0.05, loopEnd - loopStart);
+      const phase = loopStart + (Math.max(0, offsetSec) % segment);
       src.connect(input);
-      src.start(start, loopStart);
+      src.start(start, phase);
       src.stop(stopAt);
       stops.push(src);
       return;
     }
     const segment = loopEnd - loopStart;
     const hop = Math.max(0.1, segment - xfade);
-    let t = start;
+    const initialPhase = Math.max(0, offsetSec) % Math.max(0.1, hop);
+    let t = start - initialPhase;
     let first = true;
     let guard = 0;
     while (t < stopAt && guard++ < 5000) {
-      const dur = Math.min(segment, stopAt - t);
-      if (dur <= 0.02) break;
+      const visibleStart = Math.max(t, start);
+      const dur = Math.min(
+        segment - Math.max(0, start - t),
+        stopAt - visibleStart,
+      );
+      if (dur <= 0.02) {
+        t += hop;
+        continue;
+      }
       const src = ctx.createBufferSource();
       src.buffer = buffer;
       const g = ctx.createGain();
       const fade = Math.min(xfade, dur / 2);
-      g.gain.setValueAtTime(first ? 1 : 0.0001, t);
-      if (!first) g.gain.linearRampToValueAtTime(1, t + fade);
-      g.gain.setValueAtTime(1, Math.max(t, t + dur - fade));
-      g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      const schedT = Math.max(t, start);
+      g.gain.setValueAtTime(first ? 1 : 0.0001, schedT);
+      if (!first) g.gain.linearRampToValueAtTime(1, schedT + fade);
+      g.gain.setValueAtTime(1, Math.max(schedT, schedT + dur - fade));
+      g.gain.linearRampToValueAtTime(0.0001, schedT + dur);
       src.connect(g);
       g.connect(input);
-      src.start(t, loopStart, dur + 0.01);
+      src.start(schedT, loopStart + Math.max(0, start - t), dur + 0.01);
       stops.push(src);
       first = false;
       t += hop;
@@ -303,21 +323,34 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     const patternSec = Math.max(1, session.durationMin * 60);
     const loopMode = session.loop?.mode || "hold-last";
     const shouldRepeat = opts.loopPattern && loopMode !== "hold-last";
-    const cycles = shouldRepeat ? Math.max(1, Math.ceil(dur / patternSec)) : 1;
-    for (let i = 0; i < cycles; i++) {
-      const cycleStart = start + (shouldRepeat ? i * patternSec : 0);
-      const cycleDur = shouldRepeat
-        ? Math.min(patternSec, dur - i * patternSec)
-        : dur;
-      if (cycleDur <= 0.02) continue;
+    const offset = Math.max(0, opts.offsetSec || 0);
+    if (shouldRepeat) {
+      let remaining = dur;
+      let cycleStart = start;
+      let phase = offset % patternSec;
+      let guard = 0;
+      while (remaining > 0.02 && guard++ < 10000) {
+        const cycleDur = Math.min(patternSec - phase, remaining);
+        for (const l of layers) {
+          const out = buildLayer(
+            ctx,
+            l,
+            cycleStart,
+            cycleDur,
+            layers.length || 1,
+            phase,
+          );
+          out.node.connect(master);
+          stops.push(...out.stops);
+        }
+        remaining -= cycleDur;
+        cycleStart += cycleDur;
+        phase = 0;
+      }
+    } else {
+      const phase = Math.min(offset, patternSec);
       for (const l of layers) {
-        const out = buildLayer(
-          ctx,
-          l,
-          cycleStart,
-          cycleDur,
-          layers.length || 1,
-        );
+        const out = buildLayer(ctx, l, start, dur, layers.length || 1, phase);
         out.node.connect(master);
         stops.push(...out.stops);
       }
@@ -345,18 +378,22 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       return !!graph;
     },
     samples,
-    async start(opts?: { loopPattern?: boolean }) {
+    async start(opts?: { loopPattern?: boolean; offsetSec?: number }) {
       ctx = ctx || new AudioContext();
       await ctx.resume();
       const session = getSession();
       const liveSec = opts?.loopPattern
         ? Math.max(session.durationMin * 60, 8 * 60 * 60)
-        : session.durationMin * 60;
+        : Math.max(
+            1,
+            session.durationMin * 60 - Math.max(0, opts?.offsetSec || 0),
+          );
       const built = build(ctx, ctx.destination, {
         live: true,
         durSec: liveSec,
         fadeSec: session.export?.fadeSec || 0,
         loopPattern: !!opts?.loopPattern,
+        offsetSec: opts?.offsetSec || 0,
       });
       graph = {
         ctx,

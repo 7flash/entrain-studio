@@ -298,3 +298,20 @@ bun run audit:soundtracks
 bun run audit:db
 bun run dev
 ```
+
+
+## v0.12 — group synced listening
+
+This version adds hostable synchronized listening rooms for prepared soundtracks. A listener can create a room from a soundtrack page, copy a share link, and everyone who opens the link can unlock the same gated soundtrack pattern and click **Join synced listening**. The server stores only room timing metadata, not rendered audio. Playback remains local in the browser.
+
+New pieces:
+
+- `syncRooms` SQLite table for ephemeral rooms.
+- `src/lib/sync-rooms.ts` for room creation, public room state, and host controls.
+- `POST /api/sync/rooms` to create a room.
+- `GET /api/sync/rooms/[roomId]` to read server-time room state.
+- `POST /api/sync/rooms/[roomId]/control` for host `start`, `pause`, and `stop`.
+- Soundtrack player UI now has a **Group listening** card with room creation, room share links, synced join/resync, and host controls.
+- Client audio engine can start from a pattern offset, so late joiners begin at the same soundtrack position rather than from the beginning.
+
+Important limitation: Web Audio oscillator phase is not guaranteed identical between devices, and browser autoplay rules require every listener to click before audio begins. The synchronization target is soundtrack position and timing, not sample-identical phase across machines.

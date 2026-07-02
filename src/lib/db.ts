@@ -66,6 +66,19 @@ export const db = new Database(
       action: z.string(),
       createdAt: z.number(),
     }),
+    syncRooms: z.object({
+      roomId: z.string(),
+      hostKey: z.string(),
+      slug: z.string(),
+      title: z.string().optional(),
+      state: z.string().default("idle"), // idle | playing | paused
+      startedAt: z.number().default(0), // Unix ms; elapsed = serverNow - startedAt while playing
+      pausedOffsetSec: z.number().default(0),
+      createdBy: z.string().optional(),
+      createdAt: z.number(),
+      updatedAt: z.number(),
+      expiresAt: z.number(),
+    }),
   },
   {
     timestamps: true,

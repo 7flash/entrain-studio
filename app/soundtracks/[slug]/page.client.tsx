@@ -23,6 +23,16 @@ let exportMinutes = 30;
 let repetitions = 1;
 let loadedTitle = "";
 
+let roomId = "";
+let roomHostKey = "";
+let room: any = null;
+let syncMessage =
+  "Create or join a room so everyone hears the same soundtrack position.";
+let syncBusy = false;
+let syncFollowing = false;
+let syncSignature = "";
+let pollTimer: any = null;
+
 function App() {
   const locked = !session;
   return (
@@ -69,6 +79,8 @@ function App() {
       <div className="scope" style={{ margin: "12px 0" }}>
         <canvas id="soundtrack-scope" />
       </div>
+
+      <GroupListenCard locked={locked} />
 
       <div className="two">
         <div className="field">
@@ -124,6 +136,94 @@ function App() {
         loop metadata, but the local audio file must be loaded in the editor
         before it can appear in exports.
       </p>
+    </div>
+  );
+}
+
+function GroupListenCard({ locked }: { locked: boolean }) {
+  const isHost = !!room && !!roomHostKey;
+  const share = room
+    ? `${location.origin}/soundtracks/${encodeURIComponent(room.slug || slug)}?room=${encodeURIComponent(room.roomId)}`
+    : "";
+  return (
+    <div className="notice good sync-card">
+      <strong>Group listening</strong>
+      <p className="small">
+        Synced rooms use server time to start every listener at the same
+        soundtrack position. Browsers still require each person to click Join
+        synced listening once before audio can start.
+      </p>
+      <div className="tagrow" style={{ marginBottom: "8px" }}>
+        {room ? (
+          <span className="pill mono">room {room.roomId}</span>
+        ) : (
+          <span className="pill">no room</span>
+        )}
+        {room ? <span className="pill">{room.state}</span> : null}
+        {room ? (
+          <span className="pill mono">
+            position {fmtTime(roomOffset(room))}
+          </span>
+        ) : null}
+        {isHost ? <span className="pill unlocked">host controls</span> : null}
+        {syncFollowing ? (
+          <span className="pill unlocked">following</span>
+        ) : null}
+      </div>
+      <div className="tagrow">
+        <button
+          className="btn"
+          disabled={syncBusy || locked}
+          onClick={createRoom}
+        >
+          {room ? "New room" : "Create room"}
+        </button>
+        <button
+          className="btn primary"
+          disabled={syncBusy || locked || !room}
+          onClick={joinSynced}
+        >
+          {syncFollowing ? "Re-sync now" : "Join synced listening"}
+        </button>
+        {room ? (
+          <button className="btn" onClick={copyRoomLink}>
+            Copy room link
+          </button>
+        ) : null}
+        {isHost ? (
+          <button
+            className="btn"
+            disabled={syncBusy}
+            onClick={() => controlRoom("start")}
+          >
+            Start room
+          </button>
+        ) : null}
+        {isHost ? (
+          <button
+            className="btn"
+            disabled={syncBusy}
+            onClick={() => controlRoom("pause")}
+          >
+            Pause room
+          </button>
+        ) : null}
+        {isHost ? (
+          <button
+            className="btn"
+            disabled={syncBusy}
+            onClick={() => controlRoom("stop")}
+          >
+            Stop room
+          </button>
+        ) : null}
+      </div>
+      {share ? (
+        <p className="small mono" style={{ wordBreak: "break-all" }}>
+          {share}
+        </p>
+      ) : null}
+      <p className="small">{syncMessage}</p>
     </div>
   );
 }
@@ -201,7 +301,7 @@ async function unlock() {
     loadedTitle = res.template.title || session.name;
     engine.stop();
     engine = createAudioEngine(() => session!);
-    message = `loaded. Loop mode: ${session.loop?.mode || "hold-last"}. You can play forever, export WAV, or clone it.`;
+    message = `loaded. Loop mode: ${session.loop?.mode || "hold-last"}. You can play forever, export WAV, clone it, or join a group room.`;
   } catch (e: any) {
     message = e.message || "unlock failed";
   } finally {
@@ -212,6 +312,7 @@ async function unlock() {
 
 async function toggleForever() {
   if (!session) return;
+  syncFollowing = false;
   if (engine.running) {
     engine.stop();
     message = "stopped";
@@ -270,6 +371,174 @@ async function exportRepeats() {
   paint();
 }
 
+async function createRoom() {
+  if (!session) await unlock();
+  if (!session) return;
+  syncBusy = true;
+  syncMessage = "creating room…";
+  paint();
+  try {
+    const res = await fetch("/api/sync/rooms", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ slug }),
+    }).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || "room create failed");
+    room = res.room;
+    roomId = room.roomId;
+    roomHostKey = res.hostKey;
+    localStorage.setItem(`entrain:room-host:${roomId}`, roomHostKey);
+    const url = new URL(location.href);
+    url.searchParams.set("room", roomId);
+    history.replaceState(null, "", url.toString());
+    syncMessage =
+      "room created. Copy the room link, then press Start room when everyone has joined.";
+    startRoomPoll();
+  } catch (e: any) {
+    syncMessage = e.message || "room create failed";
+  }
+  syncBusy = false;
+  paint();
+}
+
+async function loadRoom(id: string) {
+  if (!id) return;
+  syncBusy = true;
+  syncMessage = "loading room…";
+  paint();
+  try {
+    const res = await fetch(
+      `/api/sync/rooms/${encodeURIComponent(id.toUpperCase())}`,
+    ).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || "room not found");
+    room = res.room;
+    roomId = room.roomId;
+    roomHostKey = localStorage.getItem(`entrain:room-host:${roomId}`) || "";
+    if (room.slug && room.slug !== slug) {
+      navigate(
+        `/soundtracks/${encodeURIComponent(room.slug)}?room=${encodeURIComponent(roomId)}`,
+      );
+      return;
+    }
+    syncMessage = `joined room ${roomId}. Unlock the soundtrack, then click Join synced listening.`;
+    startRoomPoll();
+  } catch (e: any) {
+    syncMessage = e.message || "room load failed";
+  }
+  syncBusy = false;
+  paint();
+}
+
+async function pollRoom() {
+  if (!roomId) return;
+  try {
+    const res = await fetch(
+      `/api/sync/rooms/${encodeURIComponent(roomId)}`,
+    ).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || "room expired");
+    room = res.room;
+    const sig = `${room.state}:${room.startedAt}:${Math.round(room.pausedOffsetSec * 10)}`;
+    if (syncFollowing && sig !== syncSignature) await applyRoomState();
+    else paint();
+  } catch (e: any) {
+    syncMessage = e.message || "room polling failed";
+    room = null;
+    roomId = "";
+    syncFollowing = false;
+    syncSignature = "";
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = null;
+    paint();
+  }
+}
+
+function startRoomPoll() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(pollRoom, 2500);
+}
+
+async function joinSynced() {
+  if (!roomId && room) roomId = room.roomId;
+  if (!roomId) return;
+  if (!session) await unlock();
+  if (!session) return;
+  syncFollowing = true;
+  await pollRoom();
+  await applyRoomState(true);
+}
+
+async function applyRoomState(force = false) {
+  if (!room || !session || !syncFollowing) return;
+  const sig = `${room.state}:${room.startedAt}:${Math.round(room.pausedOffsetSec * 10)}`;
+  if (!force && sig === syncSignature) return;
+  syncSignature = sig;
+  if (room.state === "playing") {
+    const offset = roomOffset(room);
+    engine.stop();
+    await engine.start({ loopPattern: true, offsetSec: offset });
+    syncMessage = `synced to room ${room.roomId} at ${fmtTime(offset)}. Keep this tab awake for best alignment.`;
+    draw();
+  } else {
+    if (engine.running) engine.stop();
+    syncMessage =
+      room.state === "paused"
+        ? `room paused at ${fmtTime(roomOffset(room))}`
+        : "room idle. Waiting for host to start.";
+  }
+  paint();
+}
+
+async function controlRoom(action: "start" | "pause" | "stop") {
+  if (!roomId || !roomHostKey) return;
+  syncBusy = true;
+  syncMessage = `${action} room…`;
+  paint();
+  try {
+    const res = await fetch(
+      `/api/sync/rooms/${encodeURIComponent(roomId)}/control`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ action, hostKey: roomHostKey }),
+      },
+    ).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || "room control failed");
+    room = res.room;
+    syncFollowing = true;
+    await applyRoomState(true);
+  } catch (e: any) {
+    syncMessage = e.message || "room control failed";
+  }
+  syncBusy = false;
+  paint();
+}
+
+async function copyRoomLink() {
+  if (!room) return;
+  const link = `${location.origin}/soundtracks/${encodeURIComponent(room.slug || slug)}?room=${encodeURIComponent(room.roomId)}`;
+  await navigator.clipboard.writeText(link).catch(() => {});
+  syncMessage = "room link copied";
+  paint();
+}
+
+function roomOffset(r: any) {
+  const age =
+    r?.state === "playing"
+      ? Math.max(0, Date.now() - Number(r.serverNow || Date.now())) / 1000
+      : 0;
+  return Math.max(0, Number(r?.elapsedSec || 0) + age);
+}
+
+function fmtTime(sec: number) {
+  const s = Math.max(0, Math.floor(sec));
+  const h = Math.floor(s / 3600),
+    m = Math.floor((s % 3600) / 60),
+    r = s % 60;
+  return h
+    ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+    : `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
 function cloneToEditor() {
   if (!session) return;
   const copy = sanitizeSession({ ...session, name: `${session.name} — clone` });
@@ -325,9 +594,13 @@ export default async function mount() {
   const root = document.getElementById("soundtrack-player-root")!;
   slug = root.dataset.slug || "";
   wallet = await getWalletState().catch(() => wallet);
+  const params = new URLSearchParams(location.search);
+  const initialRoom = (params.get("room") || "").toUpperCase();
   paint();
-  if (Number(root.dataset.minTokens || "0") <= 0) unlock();
+  if (Number(root.dataset.minTokens || "0") <= 0) await unlock();
+  if (initialRoom) await loadRoom(initialRoom);
   return () => {
+    if (pollTimer) clearInterval(pollTimer);
     engine.stop();
     render(null, root);
   };
