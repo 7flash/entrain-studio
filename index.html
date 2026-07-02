@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ENTRAIN — a tone console for attention</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=IBM+Plex+Mono:wght@400;500&amp;display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/lamejs/1.2.0/lame.min.js"></script>
+    <style>
+        :root {
+            --ink: #0d131e;
+            --panel: #141d2c;
+            --panel-2: #1a2537;
+            --line: #26334c;
+            --line-2: #33456a;
+            --trace: #54dccf;
+            --trace-dim: #2f8a83;
+            --amber: #e6a94a;
+            --amber-dim: #8a6a2c;
+            --text: #cad6ea;
+            --muted: #7f8ea8;
+            --faint: #54627d;
+            --delta: #6b7cf0;
+            --theta: #5aa9e6;
+            --alpha: #54dccf;
+            --beta: #e6a94a;
+            --gamma: #e2726a;
+            --radius: 10px;
+        }
+        * { box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            background: radial-gradient(1200px 700px at 78% -10%, #16233a 0%, transparent 55%), 
+                        radial-gradient(900px 600px at 8% 110%, #14202f 0%, transparent 50%), 
+                        var(--ink);
+            color: var(--text);
+            font-family: 'IBM Plex Sans', system-ui, sans-serif;
+            line-height: 1.65;
+            -webkit-font-smoothing: antialiased;
+        }
+        .wrap { max-width: 940px; margin: 0 auto; padding: 0 22px; }
+        .mono { font-family: 'IBM Plex Mono', monospace; }
+
+        /* ---- header / hero ---- */
+        header { padding: 64px 0 30px; }
+        .kicker {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            letter-spacing: .32em;
+            text-transform: uppercase;
+            color: var(--trace-dim);
+        }
+        h1 {
+            font-family: 'Newsreader', serif;
+            font-weight: 400;
+            font-size: clamp(42px, 7vw, 76px);
+            line-height: 1.02;
+            margin: 14px 0 6px;
+            letter-spacing: -.01em;
+        }
+        h1 em { font-style: italic; color: var(--trace); }
+        .lede {
+            font-family: 'Newsreader', serif;
+            font-size: clamp(17px, 2.3vw, 21px);
+            color: var(--muted);
+            max-width: 560px;
+            margin: 10px 0 0;
+        }
+        .scope {
+            margin: 26px 0 0;
+            height: 82px;
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: var(--panel);
+            position: relative;
+            overflow: hidden;
+        }
+        .scope canvas { width: 100%; height: 100%; display: block; }
+
+        /* ---- section scaffolding ---- */
+        section { padding: 40px 0; border-top: 1px solid var(--line); }
+        .eyebrow {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11.5px;
+            letter-spacing: .28em;
+            text-transform: uppercase;
+            color: var(--faint);
+            margin: 0 0 14px;
+        }
+        h2 {
+            font-family: 'Newsreader', serif;
+            font-weight: 400;
+            font-size: clamp(26px, 3.6vw, 34px);
+            margin: 0 0 12px;
+            letter-spacing: -.01em;
+        }
+        h3 {
+            font-family: 'IBM Plex Sans';
+            font-weight: 600;
+            font-size: 16px;
+            margin: 22px 0 6px;
+        }
+        p { margin: 0 0 14px; color: #b7c3d8; }
+        p.small { font-size: 14px; color: var(--muted); }
+        a { color: var(--trace); }
+        .cols {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 26px;
+        }
+        @media (max-width: 680px) {
+            .cols { grid-template-columns: 1fr; }
+        }
+        .note {
+            border-left: 2px solid var(--amber-dim);
+            padding: 2px 0 2px 16px;
+            margin: 18px 0;
+            color: var(--muted);
+            font-size: 14.5px;
+        }
+        .note b { color: var(--amber); font-weight: 500; }
+
+        /* ---- console ---- */
+        .console {
+            background: linear-gradient(180deg, var(--panel-2), var(--panel));
+            border: 1px solid var(--line-2);
+            border-radius: 16px;
+            padding: 22px;
+            box-shadow: 0 1px 0 #ffffff0d, 0 20px 60px -30px #000;
+        }
+        .console-top {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            height: 210px;
+            position: relative;
+            background: var(--ink);
+            border: 1px solid var(--line);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 18px;
+        }
+        #focus {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--trace);
+            box-shadow: 0 0 0 0 var(--trace);
+            transition: all 0.2s ease;
+        }
+        .readout {
+            position: absolute;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .readout.l { left: 14px; top: 12px; }
+        .readout.r { right: 14px; top: 12px; }
+        .readout.b { bottom: 12px; left: 14px; color: var(--faint); }
+        .readout.br { bottom: 12px; right: 14px; color: var(--faint); }
+        #bandtag { color: var(--trace); }
+
+        /* band strip */
+        .bands {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+            margin-bottom: 18px;
+        }
+        .band {
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 9px 8px;
+            cursor: pointer;
+            background: var(--panel);
+            text-align: center;
+            transition: all .15s, background .15s;
+        }
+        .band:hover { border-color: var(--line-2); }
+        .band.on {
+            background: var(--panel-2);
+        }
+        .band .nm {
+            font-family: 'Newsreader', serif;
+            font-size: 16px;
+            line-height: 1;
+        }
+        .band .rg {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 10.5px;
+            color: var(--faint);
+            margin-top: 3px;
+        }
+        .band[data-band="delta"] .nm { color: var(--delta); }
+        .band[data-band="delta"].on { border-color: var(--delta); }
+        .band[data-band="theta"] .nm { color: var(--theta); }
+        .band[data-band="theta"].on { border-color: var(--theta); }
+        .band[data-band="alpha"] .nm { color: var(--alpha); }
+        .band[data-band="alpha"].on { border-color: var(--alpha); }
+        .band[data-band="beta"] .nm { color: var(--beta); }
+        .band[data-band="beta"].on { border-color: var(--beta); }
+        .band[data-band="gamma"] .nm { color: var(--gamma); }
+        .band[data-band="gamma"].on { border-color: var(--gamma); }
+
+        /* controls */
+        .row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 13px;
+        }
+        .row label {
+            font-size: 13px;
+            color: var(--muted);
+            width: 112px;
+            flex-shrink: 0;
+        }
+        .row .val {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 13px;
+            color: var(--text);
+            min-width: 74px;
+            text-align: right;
+            flex-shrink: 0;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            appearance: none;
+            flex: 1;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--line-2);
+            outline: none;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--trace);
+            cursor: pointer;
+            border: 2px solid var(--ink);
+        }
+        input[type=range]::-moz-range-thumb {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: var(--trace);
+            cursor: pointer;
+            border: 2px solid var(--ink);
+        }
+        select {
+            background: var(--panel);
+            color: var(--text);
+            border: 1px solid var(--line-2);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-family: 'IBM Plex Sans';
+            font-size: 13px;
+            outline: none;
+            cursor: pointer;
+            flex: 1;
+        }
+        .controls-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0 26px;
+        }
+        @media (max-width: 680px) {
+            .controls-grid { grid-template-columns: 1fr; }
+        }
+        .btnrow {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-top: 6px;
+        }
+        button.act {
+            font-family: 'IBM Plex Sans';
+            font-weight: 500;
+            font-size: 14px;
+            padding: 11px 20px;
+            border-radius: 9px;
+            border: 1px solid var(--line-2);
+            background: var(--panel);
+            color: var(--text);
+            cursor: pointer;
+            transition: all .15s;
+        }
+        button.act:hover { border-color: var(--trace-dim); }
+        button.act.primary {
+            background: var(--trace);
+            color: #06201d;
+            border-color: var(--trace);
+            font-weight: 600;
+        }
+        .ramp-wrap {
+            border-top: 1px solid var(--line);
+            margin-top: 16px;
+            padding-top: 16px;
+        }
+        .check {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            font-size: 13px;
+            color: var(--muted);
+            cursor: pointer;
+        }
+        .check input {
+            width: 15px;
+            height: 15px;
+            accent-color: var(--trace);
+        }
+        .export-wrap {
+            border-top: 1px solid var(--line);
+            margin-top: 16px;
+            padding-top: 16px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        #exstatus {
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 12px;
+            color: var(--muted);
+        }
+        .matrix {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 14px;
+            margin: 8px 0 4px;
+        }
+        .matrix th {
+            text-align: left;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            color: var(--faint);
+            font-weight: 400;
+            padding: 8px 12px 8px 0;
+            border-bottom: 1px solid var(--line);
+        }
+        .matrix td {
+            padding: 11px 12px 11px 0;
+            border-bottom: 1px solid var(--line);
+            vertical-align: top;
+            color: #b7c3d8;
+        }
+        .matrix td { font-weight: 500; color: var(--text); white-space: nowrap; }
+        .refs { list-style: none; padding: 0; margin: 0; }
+        .refs li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+        .refs .rt { font-weight: 500; color: var(--text); }
+        .refs .rd { font-size: 13.5px; color: var(--muted); margin-top: 2px; }
+        footer {
+            padding: 40px 0 70px;
+            border-top: 1px solid var(--line);
+            color: var(--faint);
+            font-size: 13px;
+        }
+        .tag {
+            display: inline-block;
+            font-family: 'IBM Plex Mono', monospace;
+            font-size: 11px;
+            padding: 2px 8px;
+            border: 1px solid var(--line-2);
+            border-radius: 20px;
+            color: var(--muted);
+            margin-right: 6px;
+        }
+        @media (prefers-reduced-motion: reduce) {
+            #focus { transition: none !important; }
+        }
+    </style>
+</head>
+<body>
+<div class="wrap">
+    <header>
+        <div class="kicker">A tone console for attention</div>
+        <h1>ENTRAIN</h1>
+        <p class="lede">Pulsed tones and a point to hold your eyes on. A small instrument for practicing sustained focus — built to be honest about what it does and doesn't do.</p>
+        <div class="scope"><canvas id="heroscope"></canvas></div>
+    </header>
+
+    <!-- WHAT -->
+    <section id="what">
+        <div class="eyebrow">01 — What this is</div>
+        <h2>A metronome you listen <em>into</em>, not along with.</h2>
+        <div class="cols">
+            <div>
+                <p>The core is an <b>isochronic tone</b>: a steady pitch switched rapidly on and off at a precise rate — say 15 times a second. Paired with a fixed point to stare at, it gives your attention a fast, regular target to lock onto.</p>
+                <p>The practice is simple. Fixate on the dot. Track the beats. Notice the exact moment you lose the count or your gaze drifts — then return. It's breath-counting meditation with a faster, externally-timed anchor.</p>
+            </div>
+            <div>
+                <p>Two other ways to make the beat are included. A <b>binaural beat</b> sends slightly different pitches to each ear (headphones only). A <b>monaural beat</b> mixes those two pitches in the air before they reach you.</p>
+                <p class="small">Isochronic is the strongest, most clearly audible stimulus. Binaural is the subtlest and the one most of the research literature actually tested.</p>
+            </div>
+        </div>
+        <div class="note"><b>The honest caveat.</b> The popular story — "match a tone to a brainwave and your brain follows" — overstates a real but weak effect. EEG shows the auditory cortex does track periodic sound (steady-state response), but robust, lasting changes in mood, focus, or "brainwave state" from these tones are not well established. Treat this as a <b>focus-training and relaxation aid</b>, not a brain-hacking device.</div>
+    </section>
+
+    <!-- CONSOLE -->
+    <section id="console">
+        <div class="eyebrow">02 — The console</div>
+        <h2>Generate a session.</h2>
+        <p class="small">Pick a band, choose how the beat is produced, and hold your eyes on the dot. Use headphones for binaural mode. Export a file to take it with you.</p>
+
+        <div class="console" style="margin-top:20px">
+            <div class="bands" id="bands">
+                <button class="band on" data-band="alpha" data-hz="10"><div class="nm">Alpha</div><div class="rg">8–12 Hz</div></button>
+                <button class="band" data-band="delta" data-hz="2.5"><div class="nm">Delta</div><div class="rg">0.5–4 Hz</div></button>
+                <button class="band" data-band="theta" data-hz="6"><div class="nm">Theta</div><div class="rg">4–8 Hz</div></button>
+                <button class="band" data-band="beta" data-hz="18"><div class="nm">Beta</div><div class="rg">13–30 Hz</div></button>
+                <button class="band" data-band="gamma" data-hz="40"><div class="nm">Gamma</div><div class="rg">30–45 Hz</div></button>
+            </div>
+
+            <div class="console-top">
+                <span class="readout l mono" id="timer">00:00</span>
+                <span class="readout r mono"><span id="bandtag">alpha</span> · <span id="hztag">10.0 Hz</span></span>
+                <div id="focus"></div>
+                <span class="readout b mono" id="modetag">isochronic · smooth</span>
+                <span class="readout br mono" id="statetag">idle</span>
+            </div>
+
+            <div class="controls-grid">
+                <div>
+                    <div class="row">
+                        <label>Method</label>
+                        <select id="mode" style="flex:1">
+                            <option value="iso-smooth" selected>Isochronic — smooth pulse</option>
+                            <option value="iso-hard">Isochronic — hard gate</option>
+                            <option value="binaural">Binaural (headphones)</option>
+                            <option value="monaural">Monaural</option>
+                        </select>
+                    </div>
+                    <div class="row">
+                        <label>Beat rate</label>
+                        <input type="range" id="beat" min="0.5" max="45" step="0.5" value="10">
+                        <span class="val" id="beat-v">10.0 Hz</span>
+                    </div>
+                </div>
+                <div>
+                    <div class="row">
+                        <label>Carrier tone</label>
+                        <input type="range" id="carrier" min="80" max="1000" step="5" value="220">
+                        <span class="val" id="carrier-v">220 Hz</span>
+                    </div>
+                    <div class="row">
+                        <label>Volume</label>
+                        <input type="range" id="vol" min="0" max="100" step="1" value="65">
+                        <span class="val" id="vol-v">65%</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="ramp-wrap">
+                <label class="check"><input type="checkbox" id="rampOn"> Session glide — drift the beat rate over time</label>
+                <div class="controls-grid" id="rampControls" style="display:none; margin-top:12px">
+                    <div class="row">
+                        <label>Glide to</label>
+                        <input type="range" id="rampTo" min="0.5" max="45" step="0.5" value="4">
+                        <span class="val" id="rampTo-v">4.0 Hz</span>
+                    </div>
+                    <div class="row">
+                        <label>Over</label>
+                        <input type="range" id="rampMin" min="1" max="30" step="1" value="10">
+                        <span class="val" id="rampMin-v">10 min</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="btnrow" style="margin-top:18px">
+                <button class="act primary" id="toggle">▶ Start</button>
+                <button class="act" id="beep">Test beep</button>
+            </div>
+
+            <div class="export-wrap">
+                <span class="small" style="color:var(--muted)">Export</span>
+                <select id="exdur">
+                    <option value="60">1 min</option>
+                    <option value="180">3 min</option>
+                    <option value="300" selected>5 min</option>
+                    <option value="600">10 min</option>
+                    <option value="1200">20 min</option>
+                    <option value="1800">30 min</option>
+                </select>
+                <button class="act" id="export">↓ Export audio file</button>
+                <span id="exstatus"></span>
+            </div>
+        </div>
+    </section>
+
+    <!-- BANDS / EFFECTS -->
+    <section id="bands-guide">
+        <div class="eyebrow">03 — Bands & intended effects</div>
+        <h2>What people reach for each range to do.</h2>
+        <p class="small">These are the associations from the EEG and entrainment literature. They describe which rhythm dominates a resting EEG in that state — not a guarantee that playing the tone produces the state.</p>
+        <table class="matrix">
+            <thead><tr><th>Band</th><th>Range</th><th>Associated with</th><th>Commonly used for</th></tr></thead>
+            <tbody>
+                <tr><td style="color:var(--delta)">Delta</td><td class="mono">0.5–4 Hz</td><td>Deep, dreamless sleep</td><td>Sleep onset, deep rest</td></tr>
+                <tr><td style="color:var(--theta)">Theta</td><td class="mono">4–8 Hz</td><td>Drowsiness, deep meditation</td><td>Meditation, creative reverie</td></tr>
+                <tr><td style="color:var(--alpha)">Alpha</td><td class="mono">8–12 Hz</td><td>Calm, eyes-closed wakefulness</td><td>Relaxed focus, winding down</td></tr>
+                <tr><td style="color:var(--beta)">Beta</td><td class="mono">13–30 Hz</td><td>Alert, engaged thinking</td><td>Concentration, active work</td></tr>
+                <tr><td style="color:var(--gamma)">Gamma</td><td class="mono">30–45 Hz</td><td>High-level binding, intense focus</td><td>Peak-attention experiments</td></tr>
+            </tbody>
+        </table>
+    </section>
+
+    <!-- HOW -->
+    <section id="how">
+        <div class="eyebrow">04 — How to run a session</div>
+        <h2>A workable protocol.</h2>
+        <div class="cols">
+            <div>
+                <h3>The 4chan drill (focus training)</h3>
+                <p>Method <span class="tag">isochronic · smooth</span>, band <span class="tag">beta 15–20 Hz</span>, carrier around 220–300 Hz. Fixate on the dot.</p>
+                <h3>Wind-down</h3>
+                <p>Method <span class="tag">binaural</span>, band <span class="tag">alpha 10 Hz</span>, glide toward <span class="tag">theta 5 Hz</span>.</p>
+            </div>
+            <div>
+                <h3>Sensible limits</h3>
+                <p>Keep volume comfortable. 10–20 minutes is plenty. Stop if you feel unease.</p>
+                <div class="note"><b>Do not use</b> if you have epilepsy or a seizure history, while driving, or with a pacemaker without medical advice.</div>
+            </div>
+        </div>
+    </section>
+
+    <!-- RESEARCH -->
+    <section id="research">
+        <div class="eyebrow">05 — Going deeper</div>
+        <h2>Prior art & what to read.</h2>
+        <ul class="refs">
+            <li><div class="rt">Hemi-Sync (Monroe Institute)</div><div class="rd">Foundational binaural system. Search: <span class="mono">binaural beats Monroe</span>.</div></li>
+            <li><div class="rt">Auditory steady-state response (ASSR)</div><div class="rd">The real neuroscience: cortex follows periodic sound. Search: <span class="mono">auditory steady-state response 40 Hz</span>.</div></li>
+            <li><div class="rt">Neural entrainment / GENUS</div><div class="rd">Current 40 Hz research. Search: <span class="mono">gamma entrainment GENUS 40Hz</span>.</div></li>
+        </ul>
+    </section>
+
+    <footer>
+        <div style="margin-bottom:10px">
+            <span class="tag">Web Audio API</span>
+            <span class="tag">offline render</span>
+            <span class="tag">MP3 / WAV export</span>
+            <span class="tag">no data leaves your device</span>
+        </div>
+        ENTRAIN · a single self-contained page. Runs fully offline once loaded.
+    </footer>
+</div>
+
+<script>
+    "use strict";
+    const $ = s => document.querySelector(s);
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+    /* ---------- hero scope ---------- */
+    (function() {
+        const c = $('#heroscope'), x = c.getContext('2d');
+        function size() {
+            const r = c.getBoundingClientRect(), d = devicePixelRatio || 1;
+            c.width = r.width * d; c.height = r.height * d;
+            x.setTransform(d, 0, 0, d, 0, 0);
+            return r;
+        }
+        let r = size();
+        addEventListener('resize', () => r = size());
+        let t = 0;
+        (function loop() {
+            const w = r.width, h = r.height;
+            x.clearRect(0, 0, w, h);
+            x.strokeStyle = '#54dccf';
+            x.globalAlpha = .85;
+            x.lineWidth = 1.4;
+            x.beginPath();
+            for (let i = 0; i <= w; i++) {
+                const p = i / w * Math.PI * 2 * 3 + t;
+                const env = (Math.sin(t * 0.7 + i / w * Math.PI) * .5 + .5);
+                const y = h / 2 + Math.sin(p) * h * 0.26 * env + Math.sin(p * 5.3) * h * 0.05 * env;
+                i ? x.lineTo(i, y) : x.moveTo(i, y);
+            }
+            x.stroke();
+            x.globalAlpha = 1;
+            t += 0.03;
+            requestAnimationFrame(loop);
+        })();
+    })();
+
+    /* ---------- audio engine ---------- */
+    let ctx = null, nodes = null, running = false, startedAt = 0, sessDur = 0, raf = 0, tick = 0;
+    const modeEl = $('#mode'), beatEl = $('#beat'), carEl = $('#carrier'), volEl = $('#vol');
+    const rampOn = $('#rampOn'), rampTo = $('#rampTo'), rampMin = $('#rampMin');
+
+    function P() {
+        return {
+            mode: modeEl.value,
+            beat: +beatEl.value,
+            carrier: +carEl.value,
+            vol: (+volEl.value / 100) * 0.85,
+            ramp: rampOn.checked,
+            rampTo: +rampTo.value,
+            rampSec: +rampMin.value * 60
+        };
+    }
+
+    function build(ac, dest, p, glideDur) {
+        const t0 = ac.currentTime + 0.04;
+        const master = ac.createGain();
+        master.gain.setValueAtTime(0, t0);
+        master.gain.linearRampToValueAtTime(p.vol, t0 + 0.4);
+        master.connect(dest);
+
+        const g = { master, stop: [] };
+        const startBeat = p.beat, endBeat = (p.ramp ? p.rampTo : p.beat);
+        const useGlide = p.ramp && glideDur && Math.abs(endBeat - startBeat) > 0.01;
+
+        if (p.mode === 'binaural' || p.mode === 'monaural') {
+            const half = (f) => [p.carrier - f / 2, p.carrier + f / 2];
+            const [lf, rf] = half(startBeat);
+            const oL = ac.createOscillator(), oR = ac.createOscillator();
+            oL.type = oR.type = 'sine';
+            oL.frequency.value = lf; oR.frequency.value = rf;
+            if (useGlide) {
+                const [lf2, rf2] = half(endBeat);
+                oL.frequency.linearRampToValueAtTime(lf2, t0 + glideDur);
+                oR.frequency.linearRampToValueAtTime(rf2, t0 + glideDur);
+            }
+            const gl = ac.createGain(), gr = ac.createGain();
+            gl.gain.value = gr.gain.value = 0.5;
+            if (p.mode === 'binaural') {
+                const merge = ac.createChannelMerger(2);
+                oL.connect(gl); gl.connect(merge, 0, 0);
+                oR.connect(gr); gr.connect(merge, 0, 1);
+                merge.connect(master);
+            } else {
+                oL.connect(gl); oR.connect(gr);
+                gl.connect(master); gr.connect(master);
+            }
+            oL.start(t0); oR.start(t0);
+            g.stop.push(oL, oR);
+        } else {
+            const car = ac.createOscillator();
+            car.type = 'sine';
+            car.frequency.value = p.carrier;
+            const pulse = ac.createGain();
+            pulse.gain.value = 0.5;
+            const lfo = ac.createOscillator();
+            lfo.type = 'square';
+            lfo.frequency.value = startBeat;
+            if (useGlide) lfo.frequency.linearRampToValueAtTime(endBeat, t0 + glideDur);
+            const lp = ac.createBiquadFilter();
+            lp.type = 'lowpass';
+            lp.frequency.value = p.mode === 'iso-smooth' ? Math.max(12, startBeat * 3) : 3500;
+            if (p.mode === 'iso-smooth' && useGlide) lp.frequency.linearRampToValueAtTime(Math.max(12, endBeat * 3), t0 + glideDur);
+            const lg = ac.createGain();
+            lg.gain.value = 0.5;
+            lfo.connect(lp); lp.connect(lg); lg.connect(pulse.gain);
+            car.connect(pulse); pulse.connect(master);
+            car.start(t0); lfo.start(t0);
+            g.stop.push(car, lfo);
+            g.car = car; g.lfo = lfo; g.lp = lp;
+        }
+        return g;
+    }
+
+    function live() {
+        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+        ctx.resume();
+        nodes = build(ctx, ctx.destination, P(), P().rampSec);
+        startedAt = ctx.currentTime;
+        sessDur = P().ramp ? P().rampSec : 0;
+        running = true;
+        $('#toggle').innerHTML = '■ Stop';
+        $('#toggle').classList.remove('primary');
+        $('#statetag').textContent = 'running';
+        $('#statetag').style.color = 'var(--trace)';
+        clearInterval(tick);
+        tick = setInterval(() => {
+            $('#timer').textContent = fmt(ctx.currentTime - startedAt);
+            syncTagsLive();
+        }, 200);
+        animate();
+    }
+
+    function stopLive() {
+        running = false;
+        if (nodes) {
+            const t = ctx.currentTime;
+            nodes.master.gain.cancelScheduledValues(t);
+            nodes.master.gain.setTargetAtTime(0, t, 0.05);
+            setTimeout(() => nodes.stop.forEach(o => { try { o.stop(); } catch (e) {} }), 120);
+        }
+        nodes = null;
+        clearInterval(tick);
+        cancelAnimationFrame(raf);
+        $('#toggle').innerHTML = '▶ Start';
+        $('#toggle').classList.add('primary');
+        $('#statetag').textContent = 'idle';
+        $('#statetag').style.color = 'var(--faint)';
+        $('#focus').style.boxShadow = '0 0 0 0 var(--trace)';
+        $('#focus').style.transform = 'scale(1)';
+    }
+
+    $('#toggle').onclick = () => running ? stopLive() : live();
+
+    function currentBeat() {
+        const p = P();
+        if (!running || !p.ramp || !sessDur) return p.beat;
+        const el = clamp((ctx.currentTime - startedAt) / sessDur, 0, 1);
+        return p.beat + (p.rampTo - p.beat) * el;
+    }
+
+    function syncTagsLive() {
+        const b = currentBeat();
+        $('#hztag').textContent = b.toFixed(1) + ' Hz';
+        $('#bandtag').textContent = bandName(b);
+    }
+
+    function animate() {
+        if (!running) return;
+        const b = currentBeat();
+        const ph = ((ctx.currentTime - startedAt) * b) % 1;
+        const on = ph < 0.5;
+        const el = $('#focus');
+        el.style.transform = on ? 'scale(1.65)' : 'scale(1)';
+        el.style.boxShadow = on ? '0 0 26px 3px var(--trace)' : '0 0 0 0 var(--trace)';
+        raf = requestAnimationFrame(animate);
+    }
+
+    function fmt(s) {
+        s = Math.max(0, s);
+        const m = Math.floor(s / 60), r = Math.floor(s % 60);
+        return String(m).padStart(2, '0') + ':' + String(r).padStart(2, '0');
+    }
+
+    function bandName(hz) {
+        if (hz < 4) return 'delta';
+        if (hz < 8) return 'theta';
+        if (hz < 13) return 'alpha';
+        if (hz < 30) return 'beta';
+        return 'gamma';
+    }
+
+    /* ---------- UI sync ---------- */
+    function refresh() {
+        $('#beat-v').textContent = (+beatEl.value).toFixed(1) + ' Hz';
+        $('#carrier-v').textContent = (+carEl.value) + ' Hz';
+        $('#vol-v').textContent = (+volEl.value) + '%';
+        $('#rampTo-v').textContent = (+rampTo.value).toFixed(1) + ' Hz';
+        $('#rampMin-v').textContent = (+rampMin.value) + ' min';
+        const mLabel = {
+            'iso-smooth': 'isochronic · smooth',
+            'iso-hard': 'isochronic · hard',
+            'binaural': 'binaural',
+            'monaural': 'monaural'
+        }[modeEl.value];
+        $('#modetag').textContent = mLabel;
+
+        if (!running) {
+            $('#hztag').textContent = (+beatEl.value).toFixed(1) + ' Hz';
+            $('#bandtag').textContent = bandName(+beatEl.value);
+        }
+
+        document.querySelectorAll('.band').forEach(b => {
+            b.classList.toggle('on', b.dataset.band === bandName(+beatEl.value));
+        });
+
+        if (running && nodes) {
+            const t = ctx.currentTime, p = P();
+            nodes.master.gain.setTargetAtTime(p.vol, t, 0.03);
+            if (nodes.car) {
+                nodes.car.frequency.setTargetAtTime(p.carrier, t, 0.03);
+                if (!p.ramp) nodes.lfo.frequency.setTargetAtTime(p.beat, t, 0.03);
+                nodes.lp.frequency.setTargetAtTime(p.mode === 'iso-smooth' ? Math.max(12, currentBeat() * 3) : 3500, t, 0.03);
+            }
+            if (nodes.oL && !p.ramp) {
+                nodes.oL.frequency.setTargetAtTime(p.carrier - p.beat / 2, t, 0.03);
+                nodes.oR.frequency.setTargetAtTime(p.carrier + p.beat / 2, t, 0.03);
+            }
+        }
+    }
+
+    [modeEl, beatEl, carEl, volEl, rampTo, rampMin].forEach(el => el.addEventListener('input', refresh));
+    modeEl.addEventListener('change', () => { if (running) { stopLive(); live(); } });
+    rampOn.addEventListener('change', () => {
+        $('#rampControls').style.display = rampOn.checked ? 'grid' : 'none';
+        if (running) { stopLive(); live(); }
+    });
+
+    document.querySelectorAll('.band').forEach(b => b.addEventListener('click', () => {
+        beatEl.value = b.dataset.hz;
+        refresh();
+        if (running) { stopLive(); live(); }
+    }));
+
+    /* ---------- test beep ---------- */
+    $('#beep').onclick = () => {
+        ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
+        ctx.resume();
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.type = 'sine'; o.frequency.value = 660;
+        g.gain.value = 0.0001;
+        o.connect(g); g.connect(ctx.destination);
+        const t = ctx.currentTime;
+        g.gain.exponentialRampToValueAtTime(0.5, t + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+        o.start(t); o.stop(t + 0.5);
+    };
+
+    /* ---------- export ---------- */
+    $('#export').onclick = async () => {
+        const p = P(), dur = +$('#exdur').value, SR = 32000, st = $('#exstatus'), btn = $('#export');
+        btn.disabled = true;
+        try {
+            st.textContent = 'rendering…';
+            const oac = new OfflineAudioContext(2, SR * dur, SR);
+            build(oac, oac.destination, p, dur);
+            const buf = await oac.startRendering();
+            const L = buf.getChannelData(0), R = buf.numberOfChannels > 1 ? buf.getChannelData(1) : L;
+
+            let blob, ext;
+            if (window.lamejs && lamejs.Mp3Encoder) {
+                const enc = new lamejs.Mp3Encoder(2, SR, 128), CH = 1152, out = [];
+                const li = new Int16Array(CH), ri = new Int16Array(CH);
+                for (let i = 0; i < L.length; i += CH) {
+                    const n = Math.min(CH, L.length - i);
+                    for (let j = 0; j < n; j++) {
+                        li[j] = clamp(L[i + j] * 32767, -32768, 32767) | 0;
+                        ri[j] = clamp(R[i + j] * 32767, -32768, 32767) | 0;
+                    }
+                    const d = enc.encodeBuffer(li.subarray(0, n), ri.subarray(0, n));
+                    if (d.length) out.push(new Uint8Array(d));
+                    if ((i / CH) % 300 === 0) {
+                        st.textContent = 'encoding ' + Math.round(i / L.length * 100) + '%';
+                        await new Promise(r => setTimeout(r, 0));
+                    }
+                }
+                const f = enc.flush();
+                if (f.length) out.push(new Uint8Array(f));
+                blob = new Blob(out, { type: 'audio/mpeg' });
+                ext = 'mp3';
+            } else {
+                st.textContent = 'encoder offline — writing WAV…';
+                blob = wav(L, R, SR);
+                ext = 'wav';
+            }
+
+            const label = (p.mode.startsWith('iso') ? 'isochronic' : p.mode) + '_' + p.beat + 'hz' + (p.ramp ? '-to-' + p.rampTo + 'hz' : '') + '_' + p.carrier + 'c_' + Math.round(dur / 60) + 'min.' + ext;
+            const url = URL.createObjectURL(blob), a = document.createElement('a');
+            a.href = url; a.download = label;
+            document.body.appendChild(a); a.click(); a.remove();
+            st.textContent = 'saved ' + label + ' · ' + (blob.size / 1048576).toFixed(1) + ' MB';
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        } catch (e) {
+            st.textContent = 'export failed: ' + e.message;
+        }
+        btn.disabled = false;
+    };
+
+    function wav(L, R, SR) {
+        const n = L.length, h = 44, dv = new DataView(new ArrayBuffer(h + n * 4));
+        const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+        w(0, 'RIFF'); dv.setUint32(4, 36 + n * 4, true); w(8, 'WAVEfmt ');
+        dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 2, true);
+        dv.setUint32(24, SR, true); dv.setUint32(28, SR * 4, true);
+        dv.setUint16(32, 4, true); dv.setUint16(34, 16, true);
+        w(36, 'data'); dv.setUint32(40, n * 4, true);
+        for (let i = 0; i < n; i++) {
+            dv.setInt16(h + i * 4, clamp(L[i] * 32767, -32768, 32767), true);
+            dv.setInt16(h + i * 4 + 2, clamp(R[i] * 32767, -32768, 32767), true);
+        }
+        return new Blob([dv.buffer], { type: 'audio/wav' });
+    }
+
+    refresh();
+</script>
+</body>
+</html>
