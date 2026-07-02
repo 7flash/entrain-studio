@@ -168,9 +168,10 @@ export const seedTemplates: EntrainTemplateV1[] = [
     tier: "holder",
     minTokens: 1,
     unlockNote: "Holder tier: basic multiplexed binaural stack.",
-    summary: "Multiplexed low-frequency binaural stack plus pink noise bed.",
+    summary:
+      "Multiplexed low-frequency binaural stack plus continuous pink noise bed.",
     description:
-      "A report-inspired, plain-language multiplexed stack: a slow delta anchor, theta support, and a procedural pink mask. Descriptive and experimental; not a medical or consciousness claim.",
+      "A report-aligned, plain-language multiplexed stack: a slow delta anchor, theta support, and a continuous procedural pink-noise mask. The two binaural layers use matched gains and sit below the mask to reduce fatigue. Descriptive and experimental; not a medical or consciousness claim.",
     tags: ["binaural", "delta", "theta", "holder"],
     session: s("Mind Awake Body Rest", 35, [
       {
@@ -179,8 +180,8 @@ export const seedTemplates: EntrainTemplateV1[] = [
         carrierHz: 100,
         wave: "sine",
         keyframes: [
-          { tMin: 0, beatHz: 1.5, gainPct: 52 },
-          { tMin: 35, beatHz: 1.5, gainPct: 52 },
+          { tMin: 0, beatHz: 1.5, gainPct: 20 },
+          { tMin: 35, beatHz: 1.5, gainPct: 20 },
         ],
       },
       {
@@ -189,20 +190,17 @@ export const seedTemplates: EntrainTemplateV1[] = [
         carrierHz: 200,
         wave: "sine",
         keyframes: [
-          { tMin: 0, beatHz: 4, gainPct: 44 },
-          { tMin: 35, beatHz: 4, gainPct: 44 },
+          { tMin: 0, beatHz: 4, gainPct: 20 },
+          { tMin: 35, beatHz: 4, gainPct: 20 },
         ],
       },
       {
-        id: "pink-rain-mask",
-        type: "procedural-ambience",
-        ambienceRecipe: "pink-rain",
-        seed: 1010,
-        pan: 0,
-        panMotion: { rateHz: 0.03, depth: 0.18 },
+        id: "pink-mask",
+        type: "noise",
+        noiseColor: "pink",
         keyframes: [
-          { tMin: 0, gainPct: 20 },
-          { tMin: 35, gainPct: 20 },
+          { tMin: 0, gainPct: 50 },
+          { tMin: 35, gainPct: 50 },
         ],
       },
     ]),
@@ -215,9 +213,9 @@ export const seedTemplates: EntrainTemplateV1[] = [
     minTokens: 10,
     unlockNote: "Pro tier: larger stack with staged fade-ins.",
     summary:
-      "F10 base plus alpha and high-theta layers fading into a wider stack.",
+      "F10 base plus alpha and high-theta layers fading into a wider pink-masked stack.",
     description:
-      "A larger staged multiplexed stack: base delta/theta remains stable while alpha and high-theta layers fade in. Useful for multi-layer playback, timeline ramps, and token-tier gating.",
+      "A report-aligned staged multiplexed stack: base delta/theta remains stable while alpha and high-theta layers fade in over the first minute. Useful for multi-layer playback, timeline ramps, and token-tier gating.",
     tags: ["binaural", "multi-layer", "pro"],
     session: s("Expanded Awareness Stack", 35, [
       {
@@ -226,8 +224,8 @@ export const seedTemplates: EntrainTemplateV1[] = [
         carrierHz: 100,
         wave: "sine",
         keyframes: [
-          { tMin: 0, beatHz: 1.5, gainPct: 50 },
-          { tMin: 35, beatHz: 1.5, gainPct: 50 },
+          { tMin: 0, beatHz: 1.5, gainPct: 15 },
+          { tMin: 35, beatHz: 1.5, gainPct: 15 },
         ],
       },
       {
@@ -236,8 +234,8 @@ export const seedTemplates: EntrainTemplateV1[] = [
         carrierHz: 200,
         wave: "sine",
         keyframes: [
-          { tMin: 0, beatHz: 4, gainPct: 42 },
-          { tMin: 35, beatHz: 4, gainPct: 42 },
+          { tMin: 0, beatHz: 4, gainPct: 15 },
+          { tMin: 35, beatHz: 4, gainPct: 15 },
         ],
       },
       {
@@ -247,8 +245,8 @@ export const seedTemplates: EntrainTemplateV1[] = [
         wave: "sine",
         keyframes: [
           { tMin: 0, beatHz: 10, gainPct: 0 },
-          { tMin: 3, beatHz: 10, gainPct: 38 },
-          { tMin: 35, beatHz: 10.1, gainPct: 38 },
+          { tMin: 1, beatHz: 10, gainPct: 15 },
+          { tMin: 35, beatHz: 10.1, gainPct: 15 },
         ],
       },
       {
@@ -258,20 +256,17 @@ export const seedTemplates: EntrainTemplateV1[] = [
         wave: "sine",
         keyframes: [
           { tMin: 0, beatHz: 4.8, gainPct: 0 },
-          { tMin: 4, beatHz: 4.8, gainPct: 33 },
-          { tMin: 35, beatHz: 4.8, gainPct: 33 },
+          { tMin: 1, beatHz: 4.8, gainPct: 15 },
+          { tMin: 35, beatHz: 4.8, gainPct: 15 },
         ],
       },
       {
-        id: "pink-rain-mask",
-        type: "procedural-ambience",
-        ambienceRecipe: "pink-rain",
-        seed: 1212,
-        pan: 0,
-        panMotion: { rateHz: 0.02, depth: 0.16 },
+        id: "pink-mask",
+        type: "noise",
+        noiseColor: "pink",
         keyframes: [
-          { tMin: 0, gainPct: 18 },
-          { tMin: 35, gainPct: 18 },
+          { tMin: 0, gainPct: 50 },
+          { tMin: 35, gainPct: 50 },
         ],
       },
     ]),
@@ -284,9 +279,9 @@ export const seedTemplates: EntrainTemplateV1[] = [
     minTokens: 10,
     unlockNote:
       "Pro tier: long-form descent plus optional local ambience track.",
-    summary: "A 60-minute binaural descent from alpha toward low delta.",
+    summary: "A 60-minute 140 Hz binaural descent from alpha toward low delta.",
     description:
-      "A long-form descent pattern inspired by the report: a 140 Hz binaural carrier gliding 10 → 2.5 → 1.5 Hz, with procedural rain/bowl masking and safe fade envelopes.",
+      "A report-aligned long-form descent: one 140 Hz binaural carrier gliding 10 → 2.5 Hz during the first 30 minutes, then 2.5 → 1.5 Hz during the second 30 minutes, with procedural rain/bowl masking and safe fade envelopes.",
     tags: ["binaural", "longform", "delta", "premium"],
     session: s(
       "Deep Descent 60",
@@ -298,9 +293,9 @@ export const seedTemplates: EntrainTemplateV1[] = [
           carrierHz: 140,
           wave: "sine",
           keyframes: [
-            { tMin: 0, beatHz: 10, gainPct: 48 },
-            { tMin: 30, beatHz: 2.5, gainPct: 48 },
-            { tMin: 60, beatHz: 1.5, gainPct: 42 },
+            { tMin: 0, beatHz: 10, gainPct: 20 },
+            { tMin: 30, beatHz: 2.5, gainPct: 20 },
+            { tMin: 60, beatHz: 1.5, gainPct: 18 },
           ],
         },
         {
@@ -311,8 +306,8 @@ export const seedTemplates: EntrainTemplateV1[] = [
           pan: 0,
           panMotion: { rateHz: 0.03, depth: 0.18 },
           keyframes: [
-            { tMin: 0, gainPct: 22 },
-            { tMin: 60, gainPct: 26 },
+            { tMin: 0, gainPct: 50 },
+            { tMin: 60, gainPct: 50 },
           ],
         },
         {
