@@ -1,984 +1,2306 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ENTRAIN+ — multi-wave tone console</title>
-<style>
-:root{
-  --ink:#0b1019; --panel:#111a28; --panel-2:#172238; --panel-3:#1c2a43;
-  --line:#29364f; --line-2:#3a4d73; --trace:#54dccf; --trace-2:#8cf7ec;
-  --amber:#e6a94a; --red:#e2726a; --text:#d1dcee; --muted:#8a99b4; --faint:#5d6d87;
-  --delta:#7986ff; --theta:#5bb7ef; --alpha:#54dccf; --beta:#e6a94a; --gamma:#e2726a;
-  --radius:14px;
-}
-*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{
-  margin:0;
-  background:
-    radial-gradient(1200px 700px at 76% -8%, #182942 0%, transparent 55%),
-    radial-gradient(820px 560px at 4% 108%, #142535 0%, transparent 52%),
-    var(--ink);
-  color:var(--text);
-  font:15px/1.55 ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  -webkit-font-smoothing:antialiased;
-}
-.wrap{max-width:1120px;margin:0 auto;padding:0 22px}
-.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-header{padding:54px 0 24px}
-.kicker{font-size:12px;letter-spacing:.32em;text-transform:uppercase;color:var(--trace);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-h1{font-family:Georgia,serif;font-weight:400;font-size:clamp(44px,7vw,78px);line-height:.98;margin:12px 0 8px;letter-spacing:-.03em}
-h1 span{color:var(--trace)}
-.lede{max-width:760px;color:var(--muted);font-family:Georgia,serif;font-size:clamp(18px,2vw,22px);margin:0}
-section{border-top:1px solid var(--line);padding:30px 0}
-h2{font-family:Georgia,serif;font-weight:400;font-size:clamp(28px,3vw,38px);margin:0 0 10px;letter-spacing:-.02em}
-p{margin:0 0 12px;color:#b8c6dd}
-.small{font-size:13px;color:var(--muted)}
-.tag{display:inline-block;border:1px solid var(--line-2);border-radius:999px;padding:2px 8px;font-size:11px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.grid{display:grid;gap:18px}
-.cols{display:grid;grid-template-columns:1.05fr .95fr;gap:22px}
-@media(max-width:850px){.cols{grid-template-columns:1fr}}
-.console{
-  background:linear-gradient(180deg,var(--panel-2),var(--panel));
-  border:1px solid var(--line-2);
-  border-radius:20px;
-  box-shadow:inset 0 1px 0 #ffffff0e, 0 26px 80px -42px #000;
-  overflow:hidden;
-}
-.topbar{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;
-  padding:14px 16px;border-bottom:1px solid var(--line);background:#0b1019b8;flex-wrap:wrap
-}
-.btnrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
-button,.filebtn{
-  font:600 13px/1 ui-sans-serif,system-ui,sans-serif;
-  padding:10px 13px;border-radius:10px;border:1px solid var(--line-2);
-  color:var(--text);background:var(--panel);cursor:pointer;transition:.15s;
-}
-button:hover,.filebtn:hover{background:var(--panel-3);border-color:var(--trace)}
-button.primary{background:var(--trace);border-color:var(--trace);color:#041f1c}
-button.warn{border-color:#8e4946;color:#ffd8d4}
-button.ghost{background:transparent}
-button:disabled{opacity:.48;cursor:not-allowed}
-select,input[type=text],input[type=number],textarea{
-  width:100%;background:#0d1420;color:var(--text);border:1px solid var(--line-2);
-  border-radius:10px;padding:9px 10px;outline:none
-}
-select:focus,input:focus,textarea:focus{border-color:var(--trace)}
-input[type=range]{width:100%;accent-color:var(--trace)}
-input[type=checkbox]{accent-color:var(--trace)}
-.scope{
-  height:160px;background:#080d15;border-bottom:1px solid var(--line);position:relative;
-}
-.scope canvas{width:100%;height:100%;display:block}
-.readouts{
-  position:absolute;inset:0;pointer-events:none;display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr auto;padding:12px;
-  color:var(--muted);font-size:12px
-}
-.readouts .r{text-align:right}.readouts .b{grid-column:1/3;align-self:end;color:var(--faint)}
-.panel{padding:16px}
-.controlgrid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
-@media(max-width:900px){.controlgrid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.controlgrid{grid-template-columns:1fr}}
-.field label{display:flex;justify-content:space-between;gap:10px;font-size:12px;color:var(--muted);margin:0 0 5px}
-.field b{font-weight:500;color:var(--text)}
-.help{border-left:2px solid var(--amber);padding:2px 0 2px 14px;color:var(--muted);font-size:13px;margin-top:10px}
-.layers-head{
-  display:flex;align-items:center;justify-content:space-between;gap:12px;margin:4px 0 12px;flex-wrap:wrap
-}
-.layers{display:grid;grid-template-columns:1fr;gap:12px}
-.layer{
-  border:1px solid var(--line);border-radius:16px;background:#111a28;overflow:hidden
-}
-.layer.active{border-color:var(--line-2)}
-.layer-head{
-  display:grid;grid-template-columns:auto 1fr auto;gap:12px;align-items:center;
-  padding:11px 12px;background:#0d1420;border-bottom:1px solid var(--line)
-}
-.dot{width:12px;height:12px;border-radius:50%;background:var(--trace);box-shadow:0 0 18px var(--trace)}
-.layer-title{font-weight:650}
-.layer-sub{font-size:12px;color:var(--muted);margin-top:2px}
-.layer-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}
-.layer-actions button{padding:8px 9px;font-size:12px;font-weight:600}
-.layer-body{padding:12px;display:grid;grid-template-columns:repeat(6,1fr);gap:11px}
-.layer-body .wide{grid-column:span 2}
-.layer-body .full{grid-column:1/-1}
-@media(max-width:980px){.layer-body{grid-template-columns:repeat(3,1fr)}}
-@media(max-width:620px){.layer-body{grid-template-columns:1fr}.layer-body .wide{grid-column:auto}}
-.minirow{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-.pill{
-  border:1px solid var(--line-2);border-radius:999px;padding:5px 9px;font-size:12px;color:var(--muted);
-  background:#0d1420
-}
-.presets{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-@media(max-width:900px){.presets{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:560px){.presets{grid-template-columns:1fr}}
-.preset{
-  text-align:left;padding:12px;border-radius:14px;background:#0d1420;border:1px solid var(--line);min-height:88px
-}
-.preset strong{display:block;color:var(--text);margin-bottom:4px}
-.preset span{display:block;color:var(--muted);font-weight:400;font-size:12px;line-height:1.35}
-.status{font-size:12px;color:var(--muted)}
-.matrix{width:100%;border-collapse:collapse;margin-top:8px}
-.matrix th{font:11px/1 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;text-align:left;color:var(--faint);letter-spacing:.14em;text-transform:uppercase;border-bottom:1px solid var(--line);padding:9px 12px 9px 0}
-.matrix td{border-bottom:1px solid var(--line);padding:10px 12px 10px 0;color:#b8c6dd;vertical-align:top}
-.matrix tr:last-child td{border-bottom:none}
-footer{padding:32px 0 58px;border-top:1px solid var(--line);color:var(--faint);font-size:13px}
-.hidden{display:none!important}
-</style>
-</head>
-<body>
-<div class="wrap">
-<header>
-  <div class="kicker">Multi-wave audio lab</div>
-  <h1>ENTRAIN<span>+</span></h1>
-  <p class="lede">A safer, more flexible tone console for attention practice: stack several isochronic, binaural, monaural, carrier, and noise layers; pan them; ramp them; save presets; and export the full mix as a WAV.</p>
-</header>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ENTRAIN Studio v3 — spatial ambience designer</title>
+    <style>
+      :root {
+        --ink: #090e16;
+        --panel: #111a28;
+        --panel2: #172238;
+        --panel3: #1c2a43;
+        --line: #2a3853;
+        --line2: #40577f;
+        --trace: #54dccf;
+        --trace2: #9af8ef;
+        --amber: #e6a94a;
+        --red: #e2726a;
+        --green: #83d483;
+        --text: #d4def0;
+        --muted: #8e9fbb;
+        --faint: #61718d;
+        --delta: #7986ff;
+        --theta: #5bb7ef;
+        --alpha: #54dccf;
+        --beta: #e6a94a;
+        --gamma: #e2726a;
+        --radius: 14px;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+      }
+      body {
+        margin: 0;
+        color: var(--text);
+        font:
+          15px/1.55 ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+        background:
+          radial-gradient(
+            1100px 700px at 82% -12%,
+            #1a2e4c 0%,
+            transparent 56%
+          ),
+          radial-gradient(820px 560px at 4% 108%, #122635 0%, transparent 52%),
+          var(--ink);
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 0 22px;
+      }
+      .mono {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      header {
+        padding: 52px 0 26px;
+      }
+      .kicker {
+        font:
+          12px/1 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+        letter-spacing: 0.32em;
+        text-transform: uppercase;
+        color: var(--trace);
+      }
+      h1 {
+        font-family: Georgia, serif;
+        font-weight: 400;
+        font-size: clamp(44px, 7vw, 80px);
+        line-height: 0.98;
+        margin: 12px 0 9px;
+        letter-spacing: -0.035em;
+      }
+      h1 span {
+        color: var(--trace);
+      }
+      .lede {
+        max-width: 820px;
+        margin: 0;
+        color: var(--muted);
+        font-family: Georgia, serif;
+        font-size: clamp(18px, 2vw, 22px);
+      }
+      section {
+        border-top: 1px solid var(--line);
+        padding: 30px 0;
+      }
+      h2 {
+        font-family: Georgia, serif;
+        font-weight: 400;
+        font-size: clamp(28px, 3vw, 38px);
+        margin: 0 0 10px;
+        letter-spacing: -0.02em;
+      }
+      h3 {
+        font-size: 16px;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 0 0 12px;
+        color: #bac8dd;
+      }
+      .small {
+        font-size: 13px;
+        color: var(--muted);
+      }
+      .console {
+        background: linear-gradient(180deg, var(--panel2), var(--panel));
+        border: 1px solid var(--line2);
+        border-radius: 21px;
+        box-shadow:
+          inset 0 1px 0 #ffffff0e,
+          0 28px 86px -46px #000;
+        overflow: hidden;
+      }
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: #0b1019c9;
+        flex-wrap: wrap;
+      }
+      .btnrow {
+        display: flex;
+        gap: 9px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      button,
+      .filebtn {
+        font:
+          650 13px/1 ui-sans-serif,
+          system-ui,
+          sans-serif;
+        padding: 10px 13px;
+        border-radius: 10px;
+        border: 1px solid var(--line2);
+        color: var(--text);
+        background: var(--panel);
+        cursor: pointer;
+        transition: 0.15s;
+        text-decoration: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+      button:hover,
+      .filebtn:hover {
+        background: var(--panel3);
+        border-color: var(--trace);
+      }
+      button.primary {
+        background: var(--trace);
+        border-color: var(--trace);
+        color: #041f1c;
+      }
+      button.warn {
+        border-color: #8e4946;
+        color: #ffd8d4;
+      }
+      button.ok {
+        border-color: #47764f;
+        color: #d6ffd9;
+      }
+      button.ghost {
+        background: transparent;
+      }
+      button:disabled {
+        opacity: 0.48;
+        cursor: not-allowed;
+      }
+      select,
+      input[type="text"],
+      input[type="number"],
+      textarea {
+        width: 100%;
+        background: #0d1420;
+        color: var(--text);
+        border: 1px solid var(--line2);
+        border-radius: 10px;
+        padding: 9px 10px;
+        outline: none;
+      }
+      textarea {
+        min-height: 76px;
+        resize: vertical;
+      }
+      select:focus,
+      input:focus,
+      textarea:focus {
+        border-color: var(--trace);
+      }
+      input[type="range"] {
+        width: 100%;
+        accent-color: var(--trace);
+      }
+      input[type="checkbox"] {
+        accent-color: var(--trace);
+      }
+      .pill {
+        border: 1px solid var(--line2);
+        border-radius: 999px;
+        padding: 5px 9px;
+        font-size: 12px;
+        color: var(--muted);
+        background: #0d1420;
+        display: inline-block;
+      }
+      .scope {
+        height: 174px;
+        background: #080d15;
+        border-bottom: 1px solid var(--line);
+        position: relative;
+      }
+      .scope canvas {
+        width: 100%;
+        height: 100%;
+        display: block;
+      }
+      .readouts {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        grid-template-rows: auto 1fr auto;
+        padding: 12px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .readouts .r {
+        text-align: right;
+      }
+      .readouts .b {
+        grid-column: 1/3;
+        align-self: end;
+        color: var(--faint);
+      }
+      .panel {
+        padding: 16px;
+      }
+      .split {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 16px;
+      }
+      @media (max-width: 900px) {
+        .split {
+          grid-template-columns: 1fr;
+        }
+      }
+      .controlgrid {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+      }
+      @media (max-width: 1060px) {
+        .controlgrid {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      @media (max-width: 680px) {
+        .controlgrid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .field label {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        margin: 0 0 5px;
+      }
+      .field b {
+        font-weight: 600;
+        color: var(--text);
+      }
+      .help {
+        border-left: 2px solid var(--amber);
+        padding: 2px 0 2px 14px;
+        color: var(--muted);
+        font-size: 13px;
+        margin-top: 10px;
+      }
+      .danger {
+        border-left-color: var(--red);
+      }
+      .layers-head,
+      .section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 4px 0 12px;
+        flex-wrap: wrap;
+      }
+      .layers {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+      .layer {
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: #111a28;
+        overflow: hidden;
+      }
+      .layer.dim {
+        opacity: 0.62;
+      }
+      .layer-head {
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 12px;
+        align-items: center;
+        padding: 11px 12px;
+        background: #0d1420;
+        border-bottom: 1px solid var(--line);
+      }
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 50%;
+        background: var(--trace);
+        box-shadow: 0 0 18px var(--trace);
+      }
+      .layer-title {
+        font-weight: 700;
+      }
+      .layer-sub {
+        font-size: 12px;
+        color: var(--muted);
+        margin-top: 2px;
+      }
+      .layer-actions {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .layer-actions button {
+        padding: 8px 9px;
+        font-size: 12px;
+      }
+      .layer-body {
+        padding: 12px;
+        display: grid;
+        grid-template-columns: repeat(6, 1fr);
+        gap: 11px;
+      }
+      .layer-body .wide {
+        grid-column: span 2;
+      }
+      .layer-body .full {
+        grid-column: 1/-1;
+      }
+      @media (max-width: 980px) {
+        .layer-body {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      @media (max-width: 620px) {
+        .layer-body {
+          grid-template-columns: 1fr;
+        }
+        .layer-body .wide {
+          grid-column: auto;
+        }
+      }
+      .presets {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+      }
+      @media (max-width: 1100px) {
+        .presets {
+          grid-template-columns: repeat(3, 1fr);
+        }
+      }
+      @media (max-width: 680px) {
+        .presets {
+          grid-template-columns: 1fr;
+        }
+      }
+      .preset {
+        text-align: left;
+        padding: 12px;
+        border-radius: 14px;
+        background: #0d1420;
+        border: 1px solid var(--line);
+        min-height: 92px;
+        display: block;
+      }
+      .preset strong {
+        display: block;
+        color: var(--text);
+        margin-bottom: 4px;
+      }
+      .preset span {
+        display: block;
+        color: var(--muted);
+        font-weight: 400;
+        font-size: 12px;
+        line-height: 1.35;
+      }
+      .stage-list {
+        display: grid;
+        gap: 10px;
+      }
+      .stage {
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: #0d1420;
+        padding: 11px;
+        display: grid;
+        grid-template-columns: auto 1fr auto;
+        gap: 12px;
+        align-items: center;
+      }
+      .stage.active {
+        border-color: var(--trace);
+      }
+      .stage-num {
+        font:
+          700 12px/1 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+        color: #061f1c;
+        background: var(--trace);
+        border-radius: 999px;
+        padding: 6px 8px;
+      }
+      .stage-title {
+        font-weight: 700;
+      }
+      .stage-meta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .stage-actions {
+        display: flex;
+        gap: 7px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+      .stage-actions button {
+        padding: 8px 9px;
+        font-size: 12px;
+      }
+      .matrix {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 8px;
+      }
+      .matrix th {
+        font:
+          11px/1 ui-monospace,
+          SFMono-Regular,
+          Menlo,
+          Consolas,
+          monospace;
+        text-align: left;
+        color: var(--faint);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        border-bottom: 1px solid var(--line);
+        padding: 9px 12px 9px 0;
+      }
+      .matrix td {
+        border-bottom: 1px solid var(--line);
+        padding: 10px 12px 10px 0;
+        color: #bac8dd;
+        vertical-align: top;
+      }
+      .matrix tr:last-child td {
+        border-bottom: none;
+      }
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .hidden {
+        display: none !important;
+      }
+      .tag {
+        display: inline-block;
+        border: 1px solid var(--line2);
+        border-radius: 999px;
+        padding: 2px 8px;
+        font-size: 11px;
+        color: var(--muted);
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      }
+      footer {
+        padding: 32px 0 58px;
+        border-top: 1px solid var(--line);
+        color: var(--faint);
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <div class="kicker">Multi-wave session designer</div>
+        <h1>ENTRAIN <span>Studio v3</span></h1>
+        <p class="lede">
+          A layered tone lab with timelines: stack several waves, give each
+          layer drift and staggered timing, save reusable stacks, then arrange
+          stacks into a complete session program.
+        </p>
+      </header>
 
-<section>
-  <h2>Build a layered session.</h2>
-  <p class="small">This version is built around combinations. Each layer has its own method, beat rate, carrier, volume, pan, ramp, mute, and solo state. A master limiter helps prevent clipping when layers are stacked.</p>
+      <section>
+        <h2>Console</h2>
+        <p class="small">
+          Start with a preset, tune the layers, snapshot stages, and render the
+          full session locally as WAV. Keep volume low when stacking.
+        </p>
 
-  <div class="console" style="margin-top:18px">
-    <div class="topbar">
-      <div class="btnrow">
-        <button class="primary" id="toggle">▶ Start</button>
-        <button id="panic" class="warn">Stop audio</button>
-        <button id="addLayer">+ Add layer</button>
-        <select id="addType" style="width:auto">
-          <option value="iso-smooth">Isochronic smooth</option>
-          <option value="iso-hard">Isochronic hard</option>
-          <option value="binaural">Binaural</option>
-          <option value="monaural">Monaural</option>
-          <option value="carrier">Plain carrier</option>
-          <option value="noise">Noise bed</option>
-        </select>
-      </div>
-      <div class="minirow mono">
-        <span class="pill" id="timer">00:00</span>
-        <span class="pill" id="state">idle</span>
-        <span class="pill" id="mixInfo">0 layers</span>
-      </div>
+        <div class="console" style="margin-top: 18px">
+          <div class="topbar">
+            <div class="btnrow">
+              <button class="primary" id="toggle">▶ Start mix</button>
+              <button id="runProgram" class="ok">▶ Run program</button>
+              <button id="panic" class="warn">Stop audio</button>
+              <button id="addLayer">+ Add layer</button>
+              <select id="addType" style="width: auto">
+                <option value="iso-smooth">Iso smooth</option>
+                <option value="iso-hard">Iso hard</option>
+                <option value="binaural">Binaural</option>
+                <option value="monaural">Monaural</option>
+                <option value="carrier">Plain carrier</option>
+                <option value="noise">Noise bed</option>
+                <option value="sample">Ambience file</option>
+              </select>
+            </div>
+            <div class="btnrow mono">
+              <span class="pill" id="timer">00:00</span>
+              <span class="pill" id="state">idle</span>
+              <span class="pill" id="mixInfo">0 layers</span>
+            </div>
+          </div>
+
+          <div class="scope">
+            <canvas id="scope"></canvas>
+            <div class="readouts mono">
+              <div id="scopeLeft">preview</div>
+              <div class="r" id="scopeRight">multi-wave mix</div>
+              <div class="b" id="scopeBottom">
+                Space=start/stop · P=program · S=panic · Export renders locally
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="controlgrid">
+              <div class="field">
+                <label>Session length <b id="durLabel">15 min</b></label>
+                <select id="sessionDur">
+                  <option value="0">manual stop</option>
+                  <option value="300">5 min</option>
+                  <option value="600">10 min</option>
+                  <option value="900" selected>15 min</option>
+                  <option value="1200">20 min</option>
+                  <option value="1800">30 min</option>
+                  <option value="3600">60 min</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Master volume <b id="masterLabel">65%</b></label>
+                <input
+                  type="range"
+                  id="masterVol"
+                  min="0"
+                  max="100"
+                  step="1"
+                  value="65"
+                />
+              </div>
+              <div class="field">
+                <label>Limiter <b id="limiterLabel">on</b></label>
+                <select id="limiter">
+                  <option value="on" selected>on — safer stacks</option>
+                  <option value="off">off — raw mix</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Fade in/out <b id="fadeLabel">4 sec</b></label>
+                <input
+                  type="range"
+                  id="fadeSec"
+                  min="0"
+                  max="20"
+                  step="1"
+                  value="4"
+                />
+              </div>
+              <div class="field">
+                <label>Visual <b id="motionLabel">pulse dot</b></label>
+                <select id="motion">
+                  <option value="pulse" selected>pulse dot</option>
+                  <option value="scope">scope only</option>
+                </select>
+              </div>
+            </div>
+            <div class="help">
+              <b>Safety:</b> stacked tones can fatigue ears quickly. Start
+              around 20–40% master, stop for headache/dizziness, and avoid
+              pulsing stimuli with seizure history unless medically cleared.
+            </div>
+          </div>
+
+          <div class="panel" style="border-top: 1px solid var(--line)">
+            <div class="section-head">
+              <div>
+                <h2 style="font-size: 28px; margin-bottom: 2px">Presets</h2>
+                <p class="small" style="margin: 0">
+                  Load a useful starting stack.
+                </p>
+              </div>
+              <div class="btnrow">
+                <button id="saveLocal">Save local</button
+                ><button id="loadLocal">Load local</button
+                ><button id="shareHash">Share URL</button
+                ><button id="exportJSON">Export JSON</button
+                ><label class="filebtn" for="importJSON">Import JSON</label
+                ><input
+                  id="importJSON"
+                  type="file"
+                  accept="application/json,.json"
+                  class="hidden"
+                />
+              </div>
+            </div>
+            <div class="presets" id="presets"></div>
+            <div class="status mono" id="presetStatus"></div>
+          </div>
+
+          <div class="panel" style="border-top: 1px solid var(--line)">
+            <div class="layers-head">
+              <div>
+                <h2 style="font-size: 28px; margin-bottom: 2px">Layers</h2>
+                <p class="small" style="margin: 0">
+                  New in this version: drift, start delay, per-layer cutoff, pan
+                  motion, and local ambience-file layers.
+                </p>
+              </div>
+              <div class="btnrow">
+                <button id="clearLayers" class="ghost">Clear</button
+                ><button id="resetDefault" class="ghost">Default stack</button>
+              </div>
+            </div>
+            <div id="layers" class="layers"></div>
+          </div>
+
+          <div class="panel" style="border-top: 1px solid var(--line)">
+            <div class="section-head">
+              <div>
+                <h2 style="font-size: 28px; margin-bottom: 2px">
+                  Program timeline
+                </h2>
+                <p class="small" style="margin: 0">
+                  Snapshot the current layer stack as a stage, then run or
+                  export the stages in order.
+                </p>
+              </div>
+            </div>
+            <div class="split">
+              <div>
+                <div
+                  class="controlgrid"
+                  style="grid-template-columns: 2fr 1fr 1fr"
+                >
+                  <div class="field">
+                    <label>Stage name <b>label</b></label
+                    ><input id="stageName" type="text" value="Focus block" />
+                  </div>
+                  <div class="field">
+                    <label>Duration <b id="stageDurLabel">10 min</b></label
+                    ><select id="stageDur">
+                      <option value="60">1 min</option>
+                      <option value="180">3 min</option>
+                      <option value="300">5 min</option>
+                      <option value="600" selected>10 min</option>
+                      <option value="900">15 min</option>
+                      <option value="1200">20 min</option>
+                      <option value="1800">30 min</option>
+                    </select>
+                  </div>
+                  <div class="field">
+                    <label>&nbsp;</label
+                    ><button id="addStage">+ Snapshot stage</button>
+                  </div>
+                </div>
+                <div class="btnrow" style="margin-top: 12px">
+                  <button id="exportProgramWav">↓ Render program WAV</button
+                  ><button id="exportProgramJSON">Export program JSON</button
+                  ><label class="filebtn" for="importProgramJSON"
+                    >Import program JSON</label
+                  ><input
+                    id="importProgramJSON"
+                    type="file"
+                    accept="application/json,.json"
+                    class="hidden"
+                  /><button id="clearProgram" class="ghost">
+                    Clear program
+                  </button>
+                </div>
+                <div class="status mono" id="programStatus"></div>
+              </div>
+              <div>
+                <textarea
+                  id="notes"
+                  placeholder="Session notes, intention, volume notes, or protocol reminders. These are saved in JSON and URL shares."
+                ></textarea>
+                <div class="help" style="margin-top: 8px">
+                  <b>Tip:</b> Use stages for warm-up → focus → wind-down instead
+                  of one long static tone.
+                </div>
+              </div>
+            </div>
+            <div id="program" class="stage-list" style="margin-top: 14px"></div>
+          </div>
+
+          <div class="panel" style="border-top: 1px solid var(--line)">
+            <h2 style="font-size: 28px">Export current mix</h2>
+            <p class="small">
+              Use this when you only want the current stack. Use program export
+              for the timeline.
+            </p>
+            <div
+              class="controlgrid"
+              style="grid-template-columns: repeat(4, 1fr)"
+            >
+              <div class="field">
+                <label>Length <b id="exportDurLabel">15 min</b></label
+                ><select id="exportDur">
+                  <option value="60">1 min</option>
+                  <option value="180">3 min</option>
+                  <option value="300">5 min</option>
+                  <option value="600">10 min</option>
+                  <option value="900" selected>15 min</option>
+                  <option value="1800">30 min</option>
+                  <option value="3600">60 min</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>Sample rate <b id="sampleRateLabel">44.1 kHz</b></label
+                ><select id="sampleRate">
+                  <option value="32000">32 kHz — smaller</option>
+                  <option value="44100" selected>44.1 kHz</option>
+                  <option value="48000">48 kHz</option>
+                </select>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label
+                ><button id="exportWav">↓ Render stack WAV</button>
+              </div>
+              <div class="field">
+                <label>&nbsp;</label
+                ><button id="copySummary">Copy session summary</button>
+              </div>
+            </div>
+            <div class="status mono" id="exportStatus"></div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>What changed in Studio</h2>
+        <table class="matrix">
+          <thead>
+            <tr>
+              <th>Feature</th>
+              <th>Use</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Program timeline</td>
+              <td>
+                Chain multiple layer stacks into one session: warm-up, drill,
+                recovery, sleep descent, or experiments.
+              </td>
+            </tr>
+            <tr>
+              <td>Micro-drift</td>
+              <td>
+                Add tiny beat movement so long sessions feel less rigid. Set to
+                0% for exact frequency tests.
+              </td>
+            </tr>
+            <tr>
+              <td>Start / stop offsets</td>
+              <td>
+                Stagger layers, fade in a noise bed first, or stop a
+                high-frequency layer before the wind-down.
+              </td>
+            </tr>
+            <tr>
+              <td>URL share</td>
+              <td>
+                Encode the whole current setup into the page hash for easy
+                handoff without a server.
+              </td>
+            </tr>
+            <tr>
+              <td>Pan motion</td>
+              <td>
+                Move any non-binaural layer through the stereo field with a slow
+                sine LFO while keeping binaural ear separation intact.
+              </td>
+            </tr>
+            <tr>
+              <td>Ambience files</td>
+              <td>
+                Load local rain, bowls, field recordings, or other audio as
+                looped layers; they render into WAV exports while the buffer
+                remains in browser RAM only.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <footer>
+        <div style="margin-bottom: 10px">
+          <span class="tag">Web Audio API</span
+          ><span class="tag">multi-layer graph</span
+          ><span class="tag">program timeline</span
+          ><span class="tag">offline WAV render</span
+          ><span class="tag">ambience layers</span
+          ><span class="tag">local only</span>
+        </div>
+        ENTRAIN Studio is a focus and relaxation tool, not a medical device.
+        Audio and presets are generated locally in your browser.
+      </footer>
     </div>
 
-    <div class="scope">
-      <canvas id="scope"></canvas>
-      <div class="readouts mono">
-        <div id="scopeLeft">preview</div>
-        <div class="r" id="scopeRight">multi-wave mix</div>
-        <div class="b" id="scopeBottom">Space = start/stop · S = panic stop · Export renders locally</div>
-      </div>
-    </div>
+    <script>
+      "use strict";
+      const $ = (s) => document.querySelector(s);
+      const $$ = (s) => Array.from(document.querySelectorAll(s));
+      const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+      const uid = () => Math.random().toString(36).slice(2, 9);
+      const deep = (x) => JSON.parse(JSON.stringify(x));
+      const safeName = (s) =>
+        String(s || "")
+          .replace(/[^\w.-]+/g, "_")
+          .slice(0, 100);
 
-    <div class="panel">
-      <div class="controlgrid">
-        <div class="field">
-          <label>Session length <b id="durLabel">15 min</b></label>
-          <select id="sessionDur">
-            <option value="0">manual stop</option>
-            <option value="300">5 min</option>
-            <option value="600">10 min</option>
-            <option value="900" selected>15 min</option>
-            <option value="1200">20 min</option>
-            <option value="1800">30 min</option>
-            <option value="3600">60 min</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Master volume <b id="masterLabel">70%</b></label>
-          <input type="range" id="masterVol" min="0" max="100" step="1" value="70">
-        </div>
-        <div class="field">
-          <label>Limiter <b id="limiterLabel">on</b></label>
-          <select id="limiter">
-            <option value="on" selected>on — safer for stacks</option>
-            <option value="off">off — raw mix</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Motion <b id="motionLabel">pulse dot</b></label>
-          <select id="motion">
-            <option value="pulse" selected>pulse dot</option>
-            <option value="scope">scope only</option>
-          </select>
-        </div>
-      </div>
-      <div class="help"><b>Volume safety:</b> keep the master low at first. Stacked waves can sound louder than one layer even when each layer is quiet. Do not use while driving, and avoid pulsing audio/visual stimuli if you have a seizure history unless a clinician clears it.</div>
-    </div>
+      let ac = null,
+        graph = null,
+        running = false,
+        programRunning = false,
+        programIndex = -1,
+        startedAt = 0,
+        raf = 0,
+        tick = 0;
+      let layers = [],
+        program = [];
+      let settings = {
+        sessionDur: 900,
+        masterVol: 65,
+        limiter: "on",
+        motion: "pulse",
+        fadeSec: 4,
+        notes: "",
+      };
 
-    <div class="panel" style="border-top:1px solid var(--line)">
-      <div class="layers-head">
-        <div>
-          <h2 style="font-size:28px;margin-bottom:2px">Layers</h2>
-          <p class="small" style="margin:0">Solo one layer to tune it, then stack it back into the mix.</p>
-        </div>
-        <div class="btnrow">
-          <button id="clearLayers" class="ghost">Clear</button>
-          <button id="resetDefault" class="ghost">Default stack</button>
-        </div>
-      </div>
-      <div id="layers" class="layers"></div>
-    </div>
+      const typeLabels = {
+        "iso-smooth": "Isochronic smooth",
+        "iso-hard": "Isochronic hard",
+        binaural: "Binaural",
+        monaural: "Monaural",
+        carrier: "Plain carrier",
+        noise: "Noise bed",
+        sample: "Ambience file",
+      };
+      const sampleStore = Object.create(null); // runtime-only: id -> AudioBuffer. Presets keep filenames, not audio data.
+      const bandColors = {
+        delta: "var(--delta)",
+        theta: "var(--theta)",
+        alpha: "var(--alpha)",
+        beta: "var(--beta)",
+        gamma: "var(--gamma)",
+      };
 
-    <div class="panel" style="border-top:1px solid var(--line)">
-      <h2 style="font-size:28px">Presets</h2>
-      <div class="presets" id="presets"></div>
-      <div class="btnrow" style="margin-top:14px">
-        <button id="saveLocal">Save current locally</button>
-        <button id="loadLocal">Load local</button>
-        <button id="exportJSON">Export preset JSON</button>
-        <label class="filebtn" for="importJSON">Import preset JSON</label>
-        <input id="importJSON" type="file" accept="application/json,.json" class="hidden">
-        <span class="status" id="presetStatus"></span>
-      </div>
-    </div>
+      function layerTemplate(
+        type = "iso-smooth",
+        beat = 10,
+        carrier = 220,
+        level = 45,
+      ) {
+        return {
+          id: uid(),
+          type,
+          beat,
+          carrier,
+          level,
+          pan: 0,
+          panRate: 0,
+          panDepth: 50,
+          enabled: true,
+          mute: false,
+          solo: false,
+          ramp: false,
+          rampTo: beat,
+          rampMin: 10,
+          wave: "sine",
+          noiseColor: "pink",
+          sampleId: null,
+          sampleName: "",
+          driftPct: 0,
+          driftSec: 24,
+          delaySec: 0,
+          stopMin: 0,
+        };
+      }
+      function cleanLayer(l) {
+        const base = layerTemplate(l.type || "iso-smooth");
+        const sampleId =
+          l.sampleId && sampleStore[l.sampleId] ? l.sampleId : null;
+        return {
+          ...base,
+          ...l,
+          id: uid(),
+          beat: +l.beat || 0,
+          carrier: +l.carrier || 0,
+          level: clamp(+l.level || 0, 0, 100),
+          pan: clamp(+l.pan || 0, -100, 100),
+          panRate: clamp(+l.panRate || 0, 0, 0.25),
+          panDepth: clamp(+l.panDepth || 0, 0, 100),
+          sampleId,
+          sampleName: l.sampleName || "",
+          driftPct: clamp(+l.driftPct || 0, 0, 8),
+          driftSec: clamp(+l.driftSec || 24, 4, 180),
+          delaySec: clamp(+l.delaySec || 0, 0, 1800),
+          stopMin: clamp(+l.stopMin || 0, 0, 240),
+        };
+      }
+      function snapshotLayers() {
+        return layers.map((l) => ({ ...deep(l), id: uid(), solo: false }));
+      }
+      function bandName(hz) {
+        hz = +hz || 0;
+        if (hz < 4) return "delta";
+        if (hz < 8) return "theta";
+        if (hz < 13) return "alpha";
+        if (hz < 30) return "beta";
+        return "gamma";
+      }
+      function fmt(s) {
+        s = Math.max(0, Math.floor(s));
+        const h = Math.floor(s / 3600),
+          m = Math.floor((s % 3600) / 60),
+          r = s % 60;
+        return h
+          ? `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
+          : `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+      }
+      function timeLabel(sec) {
+        sec = +sec || 0;
+        return sec === 0
+          ? "manual"
+          : sec % 60 === 0
+            ? `${sec / 60} min`
+            : `${sec} sec`;
+      }
+      function describeLayer(l) {
+        const timing = `${l.delaySec ? ` · start +${fmt(l.delaySec)}` : ""}${l.stopMin ? ` · stop ${l.stopMin}m` : ""}`;
+        const motion =
+          l.type !== "binaural" && +l.panRate > 0
+            ? ` · pan sweep ${(+l.panRate).toFixed(3)} Hz/${l.panDepth}%`
+            : "";
+        if (l.type === "sample")
+          return `${l.sampleName || "no file loaded"} · ${l.level}%${motion}${timing}`;
+        if (l.type === "noise")
+          return `${l.noiseColor} noise · ${l.level}%${motion}${timing}`;
+        if (l.type === "carrier")
+          return `${l.carrier} Hz carrier · ${l.level}%${motion}${timing}`;
+        return `${(+l.beat).toFixed(1)} Hz ${bandName(l.beat)} · ${l.carrier} Hz carrier · ${l.level}%${l.ramp ? ` · → ${(+l.rampTo).toFixed(1)} Hz/${l.rampMin}m` : ""}${l.driftPct ? ` · drift ±${l.driftPct}%` : ""}${motion}${timing}`;
+      }
+      function effectiveLayers(source = layers) {
+        const solo = source.some((l) => l.solo);
+        return source.filter((l) => l.enabled && !l.mute && (!solo || l.solo));
+      }
+      function defaultStack() {
+        layers = [
+          {
+            ...layerTemplate("iso-smooth", 18, 260, 48),
+            driftPct: 1.2,
+            driftSec: 30,
+          },
+          {
+            ...layerTemplate("binaural", 10, 220, 22),
+            driftPct: 0.5,
+            driftSec: 45,
+          },
+          {
+            ...layerTemplate("noise", 0, 0, 16),
+            noiseColor: "pink",
+            delaySec: 0,
+          },
+        ];
+        renderAll();
+      }
 
-    <div class="panel" style="border-top:1px solid var(--line)">
-      <h2 style="font-size:28px">Export</h2>
-      <p class="small">Offline rendering preserves all layer ramps. WAV export is self-contained and does not require external libraries.</p>
-      <div class="controlgrid">
-        <div class="field">
-          <label>Export length <b id="exportDurLabel">15 min</b></label>
-          <select id="exportDur">
-            <option value="60">1 min</option>
-            <option value="180">3 min</option>
-            <option value="300">5 min</option>
-            <option value="600">10 min</option>
-            <option value="900" selected>15 min</option>
-            <option value="1800">30 min</option>
-            <option value="3600">60 min</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Sample rate <b>44.1 kHz</b></label>
-          <select id="sampleRate">
-            <option value="32000">32 kHz — smaller</option>
-            <option value="44100" selected>44.1 kHz</option>
-            <option value="48000">48 kHz</option>
-          </select>
-        </div>
-        <div class="field">
-          <label>Fade in/out <b id="fadeLabel">4 sec</b></label>
-          <input type="range" id="fadeSec" min="0" max="15" step="1" value="4">
-        </div>
-        <div class="field">
-          <label>&nbsp;</label>
-          <button id="exportWav">↓ Render WAV</button>
-        </div>
-      </div>
-      <div class="status mono" id="exportStatus"></div>
-    </div>
-  </div>
-</section>
-
-<section>
-  <h2>Useful combinations to try</h2>
-  <table class="matrix">
-    <thead><tr><th>Goal</th><th>Stack idea</th><th>Why it is useful</th></tr></thead>
-    <tbody>
-      <tr><td>Focused drill</td><td class="mono">18 Hz iso + 10 Hz alpha bed</td><td>One clear attentional click with a quieter stabilizing pulse underneath.</td></tr>
-      <tr><td>Wind-down</td><td class="mono">10 Hz binaural → 6 Hz + pink noise</td><td>A gentler descent with a masking bed so the tones feel less fatiguing.</td></tr>
-      <tr><td>Deep rest</td><td class="mono">6 Hz monaural → 3 Hz + brown noise</td><td>Slow, soft, low-frequency texture; use low volume and a timer.</td></tr>
-      <tr><td>Experiment</td><td class="mono">40 Hz monaural + 220 Hz carrier</td><td>Lets you compare a beat layer against a plain tone without changing the rest of the mix.</td></tr>
-    </tbody>
-  </table>
-</section>
-
-<footer>
-  <div style="margin-bottom:10px">
-    <span class="tag">Web Audio API</span><span class="tag">multi-layer graph</span><span class="tag">offline WAV render</span><span class="tag">local presets</span><span class="tag">no tracking</span>
-  </div>
-  ENTRAIN+ is a focus and relaxation tool, not a medical device or proof of any supernatural claim. Audio is generated in your browser; no audio or preset data leaves the page.
-</footer>
-</div>
-
-<script>
-"use strict";
-const $ = s => document.querySelector(s);
-const $$ = s => Array.from(document.querySelectorAll(s));
-const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
-const uid = () => Math.random().toString(36).slice(2,9);
-const safeName = s => String(s||"").replace(/[^\w.-]+/g,"_").slice(0,80);
-
-let ac = null, graph = null, running = false, startedAt = 0, raf = 0, tick = 0;
-let layers = [];
-let settings = { sessionDur:900, masterVol:70, limiter:"on", motion:"pulse", fadeSec:4 };
-
-const typeLabels = {
-  "iso-smooth":"Isochronic smooth", "iso-hard":"Isochronic hard",
-  "binaural":"Binaural", "monaural":"Monaural", "carrier":"Plain carrier", "noise":"Noise bed"
-};
-const bandColors = {delta:"var(--delta)",theta:"var(--theta)",alpha:"var(--alpha)",beta:"var(--beta)",gamma:"var(--gamma)"};
-
-function layerTemplate(type="iso-smooth", beat=10, carrier=220, level=55){
-  return {
-    id:uid(), type, beat, carrier, level, pan:0, enabled:true, mute:false, solo:false,
-    ramp:false, rampTo:beat, rampMin:10, wave:"sine", noiseColor:"pink"
-  };
-}
-
-function defaultStack(){
-  layers = [
-    {...layerTemplate("iso-smooth",18,260,48), ramp:false},
-    {...layerTemplate("binaural",10,220,24), ramp:false},
-    {...layerTemplate("noise",0,0,18), noiseColor:"pink", pan:0}
-  ];
-  renderAll();
-}
-function bandName(hz){
-  hz=+hz||0;
-  if(hz<4)return "delta";
-  if(hz<8)return "theta";
-  if(hz<13)return "alpha";
-  if(hz<30)return "beta";
-  return "gamma";
-}
-function describeLayer(l){
-  if(l.type==="noise") return `${l.noiseColor} noise · ${l.level}%`;
-  if(l.type==="carrier") return `${l.carrier} Hz carrier · ${l.level}%`;
-  return `${l.beat.toFixed(1)} Hz ${bandName(l.beat)} · ${l.carrier} Hz carrier · ${l.level}%${l.ramp?` · → ${l.rampTo.toFixed(1)} Hz/${l.rampMin}m`:""}`;
-}
-function effectiveLayers(){
-  const solo = layers.some(l=>l.solo);
-  return layers.filter(l => l.enabled && !l.mute && (!solo || l.solo));
-}
-function fmt(s){
-  s=Math.max(0,Math.floor(s));
-  const h=Math.floor(s/3600), m=Math.floor((s%3600)/60), r=s%60;
-  return h ? `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}:${String(r).padStart(2,"0")}` : `${String(m).padStart(2,"0")}:${String(r).padStart(2,"0")}`;
-}
-function minLabel(sec){ return sec==0 ? "manual" : (sec%60===0 ? `${sec/60} min` : `${sec} sec`); }
-
-function renderAll(){
-  $("#sessionDur").value = String(settings.sessionDur);
-  $("#masterVol").value = String(settings.masterVol);
-  $("#limiter").value = settings.limiter;
-  $("#motion").value = settings.motion;
-  $("#fadeSec").value = String(settings.fadeSec);
-  $("#durLabel").textContent = minLabel(settings.sessionDur);
-  $("#masterLabel").textContent = settings.masterVol+"%";
-  $("#limiterLabel").textContent = settings.limiter;
-  $("#motionLabel").textContent = settings.motion==="pulse"?"pulse dot":"scope only";
-  $("#fadeLabel").textContent = settings.fadeSec+" sec";
-  $("#exportDurLabel").textContent = minLabel(+$("#exportDur").value);
-  renderLayers();
-  renderPresets();
-  updateMixInfo();
-  drawScope();
-  if(running) rebuildLive();
-}
-function renderLayers(){
-  const root = $("#layers");
-  root.innerHTML = "";
-  if(layers.length===0){
-    root.innerHTML = `<div class="help">No layers yet. Add one from the top bar or load a preset.</div>`;
-    return;
-  }
-  for(const l of layers){
-    const b = bandName(l.beat);
-    const card = document.createElement("div");
-    card.className = "layer active";
-    card.dataset.id = l.id;
-    const dotColor = l.type==="noise" ? "var(--faint)" : (bandColors[b] || "var(--trace)");
-    const disabledBeat = (l.type==="noise" || l.type==="carrier") ? "disabled" : "";
-    const disabledCarrier = (l.type==="noise") ? "disabled" : "";
-    const disabledRamp = (l.type==="noise" || l.type==="carrier") ? "disabled" : "";
-    card.innerHTML = `
-      <div class="layer-head">
-        <div class="dot" style="background:${dotColor};box-shadow:0 0 18px ${dotColor}"></div>
-        <div>
-          <div class="layer-title">${typeLabels[l.type] || l.type}</div>
-          <div class="layer-sub mono">${describeLayer(l)}</div>
-        </div>
-        <div class="layer-actions">
-          <button data-action="toggle">${l.enabled?"On":"Off"}</button>
-          <button data-action="mute" class="${l.mute?"warn":""}">${l.mute?"Muted":"Mute"}</button>
-          <button data-action="solo">${l.solo?"Soloed":"Solo"}</button>
-          <button data-action="dup">Duplicate</button>
-          <button data-action="remove" class="warn">Remove</button>
-        </div>
-      </div>
+      function renderAll() {
+        $("#sessionDur").value = String(settings.sessionDur);
+        $("#masterVol").value = String(settings.masterVol);
+        $("#limiter").value = settings.limiter;
+        $("#motion").value = settings.motion;
+        $("#fadeSec").value = String(settings.fadeSec);
+        $("#notes").value = settings.notes || "";
+        $("#durLabel").textContent = timeLabel(settings.sessionDur);
+        $("#masterLabel").textContent = settings.masterVol + "%";
+        $("#limiterLabel").textContent = settings.limiter;
+        $("#fadeLabel").textContent = settings.fadeSec + " sec";
+        $("#motionLabel").textContent =
+          settings.motion === "pulse" ? "pulse dot" : "scope only";
+        $("#exportDurLabel").textContent = timeLabel(+$("#exportDur").value);
+        $("#stageDurLabel").textContent = timeLabel(+$("#stageDur").value);
+        $("#sampleRateLabel").textContent =
+          (+$("#sampleRate").value / 1000).toFixed(1) + " kHz";
+        renderPresets();
+        renderLayers();
+        renderProgram();
+        updateMixInfo();
+        drawScope();
+      }
+      function renderPresets() {
+        const defs = [
+          {
+            name: "Focus stack",
+            desc: "18 Hz iso + quiet 10 Hz binaural + pink noise.",
+            fn: () => [
+              { ...layerTemplate("iso-smooth", 18, 260, 50), driftPct: 1 },
+              { ...layerTemplate("binaural", 10, 220, 22), driftPct: 0.5 },
+              { ...layerTemplate("noise", 0, 0, 16), noiseColor: "pink" },
+            ],
+          },
+          {
+            name: "Alpha → theta",
+            desc: "10 Hz binaural gliding to 6 Hz with pink noise.",
+            fn: () => [
+              {
+                ...layerTemplate("binaural", 10, 220, 42),
+                ramp: true,
+                rampTo: 6,
+                rampMin: 15,
+                driftPct: 0.4,
+              },
+              { ...layerTemplate("noise", 0, 0, 20), noiseColor: "pink" },
+            ],
+          },
+          {
+            name: "Deep rest",
+            desc: "6 Hz monaural gliding to 3 Hz with brown noise.",
+            fn: () => [
+              {
+                ...layerTemplate("monaural", 6, 180, 34),
+                ramp: true,
+                rampTo: 3,
+                rampMin: 20,
+                driftPct: 0.3,
+              },
+              { ...layerTemplate("noise", 0, 0, 24), noiseColor: "brown" },
+            ],
+          },
+          {
+            name: "40 Hz compare",
+            desc: "40 Hz monaural + plain carrier for A/B listening.",
+            fn: () => [
+              { ...layerTemplate("monaural", 40, 300, 32) },
+              { ...layerTemplate("carrier", 0, 220, 18) },
+            ],
+          },
+          {
+            name: "Staggered ascent",
+            desc: "Noise first, then alpha, then 18 Hz beta after one minute.",
+            fn: () => [
+              { ...layerTemplate("noise", 0, 0, 18), noiseColor: "pink" },
+              {
+                ...layerTemplate("binaural", 10, 220, 26),
+                delaySec: 20,
+                driftPct: 0.5,
+              },
+              {
+                ...layerTemplate("iso-smooth", 18, 260, 42),
+                delaySec: 60,
+                driftPct: 1.2,
+              },
+            ],
+          },
+        ];
+        const root = $("#presets");
+        root.innerHTML = "";
+        defs.forEach((p) => {
+          const b = document.createElement("button");
+          b.className = "preset";
+          b.innerHTML = `<strong>${p.name}</strong><span>${p.desc}</span>`;
+          b.onclick = () => {
+            layers = p.fn();
+            renderAll();
+            setStatus("presetStatus", `Loaded ${p.name}`);
+          };
+          root.appendChild(b);
+        });
+      }
+      function renderLayers() {
+        const root = $("#layers");
+        root.innerHTML = "";
+        if (!layers.length) {
+          root.innerHTML =
+            '<div class="help">No layers yet. Add one from the top bar or load a preset.</div>';
+          return;
+        }
+        layers.forEach((l) => {
+          const b = bandName(l.beat),
+            dotColor =
+              l.type === "noise" || l.type === "sample"
+                ? "var(--faint)"
+                : bandColors[b] || "var(--trace)";
+          const noBeat =
+              l.type === "noise" || l.type === "carrier" || l.type === "sample",
+            noCarrier = l.type === "noise" || l.type === "sample",
+            noRamp = noBeat;
+          const card = document.createElement("div");
+          card.className = "layer" + (l.enabled && !l.mute ? "" : " dim");
+          card.dataset.id = l.id;
+          card.innerHTML = `
+      <div class="layer-head"><div class="dot" style="background:${dotColor};box-shadow:0 0 18px ${dotColor}"></div><div><div class="layer-title">${typeLabels[l.type] || l.type}</div><div class="layer-sub mono">${describeLayer(l)}</div></div><div class="layer-actions"><button data-action="toggle">${l.enabled ? "On" : "Off"}</button><button data-action="mute" class="${l.mute ? "warn" : ""}">${l.mute ? "Muted" : "Mute"}</button><button data-action="solo">${l.solo ? "Soloed" : "Solo"}</button><button data-action="dup">Duplicate</button><button data-action="remove" class="warn">Remove</button></div></div>
       <div class="layer-body">
-        <div class="field wide">
-          <label>Method <b>${typeLabels[l.type] || l.type}</b></label>
-          <select data-field="type">
-            ${Object.entries(typeLabels).map(([v,n])=>`<option value="${v}" ${v===l.type?"selected":""}>${n}</option>`).join("")}
-          </select>
-        </div>
-        <div class="field">
-          <label>Beat <b>${l.beat.toFixed(1)} Hz</b></label>
-          <input data-field="beat" type="range" min="0.5" max="45" step="0.5" value="${l.beat}" ${disabledBeat}>
-        </div>
-        <div class="field">
-          <label>Carrier <b>${Math.round(l.carrier)} Hz</b></label>
-          <input data-field="carrier" type="range" min="60" max="1200" step="5" value="${l.carrier}" ${disabledCarrier}>
-        </div>
-        <div class="field">
-          <label>Layer volume <b>${l.level}%</b></label>
-          <input data-field="level" type="range" min="0" max="100" step="1" value="${l.level}">
-        </div>
-        <div class="field">
-          <label>Pan <b>${l.pan===0?"center":(l.pan<0?`${Math.abs(l.pan)}L`:`${l.pan}R`)}</b></label>
-          <input data-field="pan" type="range" min="-100" max="100" step="1" value="${l.pan}">
-        </div>
-        <div class="field ${l.type==="noise"?"":"hidden"}">
-          <label>Noise color <b>${l.noiseColor}</b></label>
-          <select data-field="noiseColor">
-            <option value="white" ${l.noiseColor==="white"?"selected":""}>white</option>
-            <option value="pink" ${l.noiseColor==="pink"?"selected":""}>pink</option>
-            <option value="brown" ${l.noiseColor==="brown"?"selected":""}>brown</option>
-          </select>
-        </div>
-        <div class="field ${l.type==="noise"||l.type==="carrier"?"hidden":""}">
-          <label>Carrier wave <b>${l.wave}</b></label>
-          <select data-field="wave">
-            <option value="sine" ${l.wave==="sine"?"selected":""}>sine</option>
-            <option value="triangle" ${l.wave==="triangle"?"selected":""}>triangle</option>
-            <option value="sawtooth" ${l.wave==="sawtooth"?"selected":""}>sawtooth</option>
-          </select>
-        </div>
-        <div class="field full ${l.type==="noise"||l.type==="carrier"?"hidden":""}">
-          <label><span><input data-field="ramp" type="checkbox" ${l.ramp?"checked":""} ${disabledRamp}> Ramp this layer</span><b>${l.ramp?`to ${l.rampTo.toFixed(1)} Hz over ${l.rampMin}m`:"off"}</b></label>
-        </div>
-        <div class="field ${l.ramp && !disabledRamp ? "" : "hidden"}">
-          <label>Ramp to <b>${l.rampTo.toFixed(1)} Hz</b></label>
-          <input data-field="rampTo" type="range" min="0.5" max="45" step="0.5" value="${l.rampTo}">
-        </div>
-        <div class="field ${l.ramp && !disabledRamp ? "" : "hidden"}">
-          <label>Ramp over <b>${l.rampMin} min</b></label>
-          <input data-field="rampMin" type="range" min="1" max="60" step="1" value="${l.rampMin}">
-        </div>
-      </div>
-    `;
-    root.appendChild(card);
-  }
-
-  root.querySelectorAll("[data-field]").forEach(el=>{
-    el.addEventListener("input", onLayerInput);
-    el.addEventListener("change", onLayerInput);
-  });
-  root.querySelectorAll("[data-action]").forEach(btn=>btn.addEventListener("click", onLayerAction));
-}
-function onLayerInput(e){
-  const card = e.target.closest(".layer");
-  const l = layers.find(x=>x.id===card.dataset.id);
-  const field = e.target.dataset.field;
-  if(!l) return;
-  if(field==="ramp") l.ramp = e.target.checked;
-  else if(["beat","carrier","level","pan","rampTo","rampMin"].includes(field)) l[field] = +e.target.value;
-  else if(field==="type"){
-    l.type = e.target.value;
-    if(l.type==="noise"){ l.beat=0; l.carrier=0; l.ramp=false; l.level=Math.min(l.level,35); }
-    if(l.type==="carrier"){ l.ramp=false; if(!l.carrier) l.carrier=220; }
-    if(l.type!=="noise" && !l.beat) l.beat=10;
-    if(l.type!=="noise" && !l.carrier) l.carrier=220;
-  } else l[field] = e.target.value;
-  const needsRender = ["type","ramp","noiseColor","wave"].includes(field) || e.type==="change";
-  if(needsRender) {
-    renderLayers();
-  } else {
-    const sub = card.querySelector(".layer-sub");
-    if(sub) sub.textContent = describeLayer(l);
-    const valueEl = e.target.closest(".field")?.querySelector("label b");
-    if(valueEl){
-      if(field==="beat") valueEl.textContent = l.beat.toFixed(1)+" Hz";
-      else if(field==="carrier") valueEl.textContent = Math.round(l.carrier)+" Hz";
-      else if(field==="level") valueEl.textContent = l.level+"%";
-      else if(field==="pan") valueEl.textContent = l.pan===0?"center":(l.pan<0?Math.abs(l.pan)+"L":l.pan+"R");
-      else if(field==="rampTo") valueEl.textContent = l.rampTo.toFixed(1)+" Hz";
-      else if(field==="rampMin") valueEl.textContent = l.rampMin+" min";
-    }
-  }
-  updateMixInfo();
-  drawScope();
-  throttleRebuild();
-}
-function onLayerAction(e){
-  const card = e.target.closest(".layer");
-  const id = card.dataset.id;
-  const action = e.target.dataset.action;
-  const idx = layers.findIndex(x=>x.id===id);
-  if(idx<0) return;
-  const l = layers[idx];
-  if(action==="toggle") l.enabled = !l.enabled;
-  if(action==="mute") l.mute = !l.mute;
-  if(action==="solo") l.solo = !l.solo;
-  if(action==="dup") layers.splice(idx+1,0,{...JSON.parse(JSON.stringify(l)), id:uid(), solo:false});
-  if(action==="remove") layers.splice(idx,1);
-  renderAll();
-}
-let rebuildTimer = 0;
-function throttleRebuild(){
-  clearTimeout(rebuildTimer);
-  if(running) rebuildTimer = setTimeout(rebuildLive, 180);
-}
-
-function renderPresets(){
-  const presetDefs = [
-    {name:"Focus stack", desc:"18 Hz smooth iso + quiet 10 Hz binaural + pink noise.", fn:()=>[
-      {...layerTemplate("iso-smooth",18,260,50), wave:"sine"},
-      {...layerTemplate("binaural",10,220,22)},
-      {...layerTemplate("noise",0,0,16), noiseColor:"pink"}
-    ]},
-    {name:"Alpha → theta", desc:"10 Hz binaural gliding to 6 Hz with pink noise.", fn:()=>[
-      {...layerTemplate("binaural",10,220,44), ramp:true, rampTo:6, rampMin:15},
-      {...layerTemplate("noise",0,0,20), noiseColor:"pink"}
-    ]},
-    {name:"Deep rest", desc:"6 Hz monaural gliding to 3 Hz with brown noise.", fn:()=>[
-      {...layerTemplate("monaural",6,180,36), ramp:true, rampTo:3, rampMin:20},
-      {...layerTemplate("noise",0,0,25), noiseColor:"brown"}
-    ]},
-    {name:"40 Hz test", desc:"40 Hz monaural under a quiet plain carrier.", fn:()=>[
-      {...layerTemplate("monaural",40,300,34)},
-      {...layerTemplate("carrier",0,220,18)}
-    ]}
-  ];
-  const root = $("#presets");
-  root.innerHTML = "";
-  for(const p of presetDefs){
-    const btn = document.createElement("button");
-    btn.className = "preset";
-    btn.innerHTML = `<strong>${p.name}</strong><span>${p.desc}</span>`;
-    btn.onclick = () => { layers = p.fn(); renderAll(); setStatus("presetStatus", `Loaded ${p.name}`); };
-    root.appendChild(btn);
-  }
-}
-function setStatus(id,msg,ms=3500){
-  const el = $("#"+id);
-  el.textContent = msg;
-  if(ms) setTimeout(()=>{ if(el.textContent===msg) el.textContent=""; }, ms);
-}
-
-function updateMixInfo(){
-  const eff = effectiveLayers();
-  $("#mixInfo").textContent = `${eff.length}/${layers.length} audible layers`;
-}
-
-function getSettingsFromUI(){
-  settings.sessionDur = +$("#sessionDur").value;
-  settings.masterVol = +$("#masterVol").value;
-  settings.limiter = $("#limiter").value;
-  settings.motion = $("#motion").value;
-  settings.fadeSec = +$("#fadeSec").value;
-}
-
-["sessionDur","masterVol","limiter","motion","fadeSec","exportDur"].forEach(id=>{
-  $("#"+id).addEventListener("input",()=>{
-    getSettingsFromUI();
-    $("#durLabel").textContent = minLabel(settings.sessionDur);
-    $("#masterLabel").textContent = settings.masterVol+"%";
-    $("#limiterLabel").textContent = settings.limiter;
-    $("#motionLabel").textContent = settings.motion==="pulse"?"pulse dot":"scope only";
-    $("#fadeLabel").textContent = settings.fadeSec+" sec";
-    $("#exportDurLabel").textContent = minLabel(+$("#exportDur").value);
-    if(running && graph && graph.master) graph.master.gain.setTargetAtTime(settings.masterVol/100, ac.currentTime, 0.04);
-    if(id==="limiter") rebuildLive();
-  });
-});
-
-$("#addLayer").onclick = () => {
-  const type = $("#addType").value;
-  layers.push(layerTemplate(type, type==="binaural"?10:type==="monaural"?12:18, type==="noise"?0:240, type==="noise"?18:40));
-  renderAll();
-};
-$("#clearLayers").onclick = () => { layers=[]; renderAll(); if(running) rebuildLive(); };
-$("#resetDefault").onclick = defaultStack;
-$("#saveLocal").onclick = () => {
-  localStorage.setItem("entrainPlusPreset", JSON.stringify({settings,layers}));
-  setStatus("presetStatus","Saved to this browser.");
-};
-$("#loadLocal").onclick = () => {
-  const raw = localStorage.getItem("entrainPlusPreset");
-  if(!raw) return setStatus("presetStatus","No local preset saved.");
-  try{ const obj=JSON.parse(raw); settings={...settings,...obj.settings}; layers=(obj.layers||[]).map(cleanLayer); renderAll(); setStatus("presetStatus","Loaded local preset."); }
-  catch(e){ setStatus("presetStatus","Could not load preset: "+e.message); }
-};
-$("#exportJSON").onclick = () => {
-  const blob = new Blob([JSON.stringify({version:1,settings,layers},null,2)],{type:"application/json"});
-  downloadBlob(blob, "entrain_plus_preset.json");
-  setStatus("presetStatus","Preset JSON downloaded.");
-};
-$("#importJSON").onchange = async e => {
-  const f = e.target.files[0]; if(!f) return;
-  try{
-    const obj = JSON.parse(await f.text());
-    settings = {...settings, ...(obj.settings||{})};
-    layers = (obj.layers||[]).map(cleanLayer);
-    renderAll(); setStatus("presetStatus","Imported preset.");
-  }catch(err){ setStatus("presetStatus","Import failed: "+err.message); }
-  e.target.value = "";
-};
-function cleanLayer(l){
-  return {...layerTemplate(l.type||"iso-smooth"), ...l, id:uid(), beat:+l.beat||0, carrier:+l.carrier||0, level:clamp(+l.level||0,0,100), pan:clamp(+l.pan||0,-100,100)};
-}
-
-/* Audio graph */
-function ensureContext(){
-  ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-  return ac.resume();
-}
-function buildMix(context, destination, opts){
-  const start = context.currentTime + (opts.live ? 0.035 : 0);
-  const duration = opts.duration || 0;
-  const fadeSec = Math.min(opts.fadeSec ?? 0, Math.max(0, duration/2 || 999));
-  const audible = effectiveLayers();
-  const master = context.createGain();
-  master.gain.setValueAtTime(0, start);
-  master.gain.linearRampToValueAtTime((settings.masterVol/100), start + Math.min(0.4, Math.max(0.02, fadeSec || 0.4)));
-  if(duration && fadeSec>0){
-    master.gain.setValueAtTime(settings.masterVol/100, start + Math.max(0, duration - fadeSec));
-    master.gain.linearRampToValueAtTime(0.0001, start + duration);
-  }
-
-  const stops = [];
-  for(const l of audible){
-    const out = buildLayer(context, l, start, duration, audible.length);
-    if(!out) continue;
-    out.node.connect(master);
-    stops.push(...out.stops);
-  }
-
-  let analyser = null;
-  if(settings.limiter==="on"){
-    const comp = context.createDynamicsCompressor();
-    comp.threshold.value = -16;
-    comp.knee.value = 18;
-    comp.ratio.value = 8;
-    comp.attack.value = 0.008;
-    comp.release.value = 0.18;
-    master.connect(comp);
-    if(opts.live && context.createAnalyser){
-      analyser = context.createAnalyser(); analyser.fftSize = 2048;
-      comp.connect(analyser); analyser.connect(destination);
-    } else comp.connect(destination);
-  } else {
-    if(opts.live && context.createAnalyser){
-      analyser = context.createAnalyser(); analyser.fftSize = 2048;
-      master.connect(analyser); analyser.connect(destination);
-    } else master.connect(destination);
-  }
-  return {master, stops, analyser, start, duration};
-}
-function buildLayer(context, l, start, duration, audibleCount){
-  const layerGain = context.createGain();
-  const normal = 0.55 / Math.sqrt(Math.max(1, audibleCount));
-  layerGain.gain.setValueAtTime((l.level/100)*normal, start);
-
-  let node = layerGain;
-  if(context.createStereoPanner && l.type!=="binaural"){
-    const p = context.createStereoPanner();
-    p.pan.setValueAtTime(clamp(l.pan/100,-1,1), start);
-    p.connect(layerGain);
-    node = p;
-  }
-
-  const stops = [];
-  const stopAt = duration ? start + duration + 0.05 : 0;
-  const beatStart = Math.max(0.01, +l.beat || 0.01);
-  const beatEnd = Math.max(0.01, l.ramp ? (+l.rampTo || beatStart) : beatStart);
-  const rampDur = l.ramp ? Math.min((+l.rampMin||1)*60, duration || (+l.rampMin||1)*60) : 0;
-  const carrier = Math.max(20, +l.carrier || 220);
-
-  if(l.type==="noise"){
-    const src = createNoiseSource(context, l.noiseColor || "pink");
-    src.connect(node);
-    src.start(start);
-    if(stopAt) src.stop(stopAt);
-    stops.push(src);
-    return {node:layerGain, stops};
-  }
-
-  if(l.type==="carrier"){
-    const osc = context.createOscillator();
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(carrier, start);
-    osc.connect(node);
-    osc.start(start); if(stopAt) osc.stop(stopAt); stops.push(osc);
-    return {node:layerGain, stops};
-  }
-
-  if(l.type==="binaural" || l.type==="monaural"){
-    const oL = context.createOscillator(), oR = context.createOscillator();
-    oL.type = oR.type = l.wave || "sine";
-    scheduleBeatPair(oL.frequency, oR.frequency, carrier, beatStart, beatEnd, start, rampDur);
-    const gL = context.createGain(), gR = context.createGain();
-    gL.gain.setValueAtTime(0.5, start); gR.gain.setValueAtTime(0.5, start);
-    if(l.type==="binaural"){
-      const merger = context.createChannelMerger(2);
-      oL.connect(gL); gL.connect(merger,0,0);
-      oR.connect(gR); gR.connect(merger,0,1);
-      merger.connect(layerGain);
-    } else {
-      oL.connect(gL); oR.connect(gR); gL.connect(node); gR.connect(node);
-    }
-    oL.start(start); oR.start(start); if(stopAt){oL.stop(stopAt);oR.stop(stopAt);}
-    stops.push(oL,oR);
-    return {node:layerGain, stops};
-  }
-
-  /* isochronic amplitude modulation */
-  const car = context.createOscillator();
-  car.type = l.wave || "sine";
-  car.frequency.setValueAtTime(carrier, start);
-
-  const amp = context.createGain();
-  amp.gain.setValueAtTime(0.5, start);
-
-  const lfo = context.createOscillator();
-  lfo.type = l.type==="iso-hard" ? "square" : "sine";
-  lfo.frequency.setValueAtTime(beatStart, start);
-  if(rampDur>0) lfo.frequency.linearRampToValueAtTime(beatEnd, start + rampDur);
-
-  const modGain = context.createGain();
-  modGain.gain.setValueAtTime(l.type==="iso-hard" ? 0.47 : 0.40, start);
-  const offset = context.createConstantSource();
-  offset.offset.setValueAtTime(l.type==="iso-hard" ? 0.50 : 0.56, start);
-
-  lfo.connect(modGain); modGain.connect(amp.gain); offset.connect(amp.gain);
-  car.connect(amp); amp.connect(node);
-  car.start(start); lfo.start(start); offset.start(start);
-  if(stopAt){ car.stop(stopAt); lfo.stop(stopAt); offset.stop(stopAt); }
-  stops.push(car,lfo,offset);
-  return {node:layerGain, stops};
-}
-function scheduleBeatPair(freqL, freqR, carrier, beatStart, beatEnd, start, rampDur){
-  freqL.setValueAtTime(Math.max(20, carrier - beatStart/2), start);
-  freqR.setValueAtTime(Math.max(20, carrier + beatStart/2), start);
-  if(rampDur>0){
-    freqL.linearRampToValueAtTime(Math.max(20, carrier - beatEnd/2), start + rampDur);
-    freqR.linearRampToValueAtTime(Math.max(20, carrier + beatEnd/2), start + rampDur);
-  }
-}
-function createNoiseSource(context, color){
-  const seconds = 2;
-  const len = Math.max(1, Math.floor(context.sampleRate * seconds));
-  const buf = context.createBuffer(2, len, context.sampleRate);
-  for(let ch=0; ch<2; ch++){
-    const d = buf.getChannelData(ch);
-    if(color==="white"){
-      for(let i=0;i<len;i++) d[i]=Math.random()*2-1;
-    } else if(color==="brown"){
-      let last = 0;
-      for(let i=0;i<len;i++){
-        const white = Math.random()*2-1;
-        last = (last + 0.02*white) / 1.02;
-        d[i] = last * 3.5;
+        <div class="field wide"><label>Method <b>${typeLabels[l.type] || l.type}</b></label><select data-field="type">${Object.entries(
+          typeLabels,
+        )
+          .map(
+            ([v, n]) =>
+              `<option value="${v}" ${v === l.type ? "selected" : ""}>${n}</option>`,
+          )
+          .join("")}</select></div>
+        <div class="field wide ${l.type === "sample" ? "" : "hidden"}"><label>Ambience file <b>${escapeHTML(l.sampleName || "not loaded")}</b></label><label class="filebtn" for="sample_${l.id}">Load local audio<input id="sample_${l.id}" type="file" accept="audio/*" data-field="sampleFile" class="hidden"></label></div>
+        <div class="field"><label>Beat <b>${(+l.beat).toFixed(1)} Hz</b></label><input data-field="beat" type="range" min="0.5" max="45" step="0.5" value="${l.beat}" ${noBeat ? "disabled" : ""}></div>
+        <div class="field"><label>Carrier <b>${Math.round(l.carrier)} Hz</b></label><input data-field="carrier" type="range" min="60" max="1200" step="5" value="${l.carrier}" ${noCarrier ? "disabled" : ""}></div>
+        <div class="field"><label>Layer volume <b>${l.level}%</b></label><input data-field="level" type="range" min="0" max="100" step="1" value="${l.level}"></div>
+        <div class="field ${l.type === "binaural" ? "hidden" : ""}"><label>Pan <b>${l.pan === 0 ? "center" : l.pan < 0 ? Math.abs(l.pan) + "L" : l.pan + "R"}</b></label><input data-field="pan" type="range" min="-100" max="100" step="1" value="${l.pan}"></div>
+        <div class="field ${l.type === "binaural" ? "hidden" : ""}"><label>Pan motion <b>${+l.panRate > 0 ? (+l.panRate).toFixed(3) + " Hz" : "off"}</b></label><input data-field="panRate" type="range" min="0" max="0.25" step="0.005" value="${l.panRate}"></div>
+        <div class="field ${l.type === "binaural" || !(+l.panRate > 0) ? "hidden" : ""}"><label>Motion depth <b>${l.panDepth}%</b></label><input data-field="panDepth" type="range" min="0" max="100" step="1" value="${l.panDepth}"></div>
+        <div class="field ${l.type === "noise" ? "" : "hidden"}"><label>Noise color <b>${l.noiseColor}</b></label><select data-field="noiseColor"><option value="white" ${l.noiseColor === "white" ? "selected" : ""}>white</option><option value="pink" ${l.noiseColor === "pink" ? "selected" : ""}>pink</option><option value="brown" ${l.noiseColor === "brown" ? "selected" : ""}>brown</option></select></div>
+        <div class="field ${l.type === "noise" || l.type === "carrier" ? "hidden" : ""}"><label>Carrier wave <b>${l.wave}</b></label><select data-field="wave"><option value="sine" ${l.wave === "sine" ? "selected" : ""}>sine</option><option value="triangle" ${l.wave === "triangle" ? "selected" : ""}>triangle</option><option value="sawtooth" ${l.wave === "sawtooth" ? "selected" : ""}>sawtooth</option></select></div>
+        <div class="field full ${noRamp ? "hidden" : ""}"><label><span><input data-field="ramp" type="checkbox" ${l.ramp ? "checked" : ""}> Ramp this layer</span><b>${l.ramp ? `to ${(+l.rampTo).toFixed(1)} Hz over ${l.rampMin}m` : "off"}</b></label></div>
+        <div class="field ${l.ramp && !noRamp ? "" : "hidden"}"><label>Ramp to <b>${(+l.rampTo).toFixed(1)} Hz</b></label><input data-field="rampTo" type="range" min="0.5" max="45" step="0.5" value="${l.rampTo}"></div>
+        <div class="field ${l.ramp && !noRamp ? "" : "hidden"}"><label>Ramp over <b>${l.rampMin} min</b></label><input data-field="rampMin" type="range" min="1" max="60" step="1" value="${l.rampMin}"></div>
+        <div class="field ${noRamp ? "hidden" : ""}"><label>Micro-drift <b>±${l.driftPct}%</b></label><input data-field="driftPct" type="range" min="0" max="8" step="0.1" value="${l.driftPct}"></div>
+        <div class="field ${noRamp ? "hidden" : ""}"><label>Drift cycle <b>${l.driftSec} sec</b></label><input data-field="driftSec" type="range" min="4" max="180" step="1" value="${l.driftSec}"></div>
+        <div class="field"><label>Start delay <b>${fmt(l.delaySec)}</b></label><input data-field="delaySec" type="range" min="0" max="600" step="5" value="${l.delaySec}"></div>
+        <div class="field"><label>Stop after <b>${l.stopMin ? l.stopMin + " min" : "stage end"}</b></label><input data-field="stopMin" type="range" min="0" max="60" step="1" value="${l.stopMin}"></div>
+      </div>`;
+          root.appendChild(card);
+        });
+        root.querySelectorAll("[data-field]").forEach((el) => {
+          el.addEventListener("input", onLayerInput);
+          el.addEventListener("change", onLayerInput);
+        });
+        root
+          .querySelectorAll("[data-action]")
+          .forEach((el) => el.addEventListener("click", onLayerAction));
       }
-    } else { // pink, Paul Kellet-style approximation
-      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
-      for(let i=0;i<len;i++){
-        const white = Math.random()*2-1;
-        b0 = 0.99886*b0 + white*0.0555179;
-        b1 = 0.99332*b1 + white*0.0750759;
-        b2 = 0.96900*b2 + white*0.1538520;
-        b3 = 0.86650*b3 + white*0.3104856;
-        b4 = 0.55000*b4 + white*0.5329522;
-        b5 = -0.7616*b5 - white*0.0168980;
-        d[i] = (b0+b1+b2+b3+b4+b5+b6+white*0.5362) * 0.11;
-        b6 = white*0.115926;
+      function onLayerInput(e) {
+        const card = e.target.closest(".layer"),
+          l = layers.find((x) => x.id === card.dataset.id);
+        if (!l) return;
+        const f = e.target.dataset.field;
+        if (f === "sampleFile") {
+          const file = e.target.files && e.target.files[0];
+          if (!file) return;
+          ensureContext().then(async () => {
+            try {
+              const buf = await ac.decodeAudioData(await file.arrayBuffer());
+              const id = uid();
+              sampleStore[id] = buf;
+              l.sampleId = id;
+              l.sampleName = file.name;
+              renderLayers();
+              updateMixInfo();
+              drawScope();
+              throttleRebuild();
+              setStatus("presetStatus", "Loaded ambience: " + file.name);
+            } catch (err) {
+              setStatus(
+                "presetStatus",
+                "Ambience decode failed: " + (err.message || err),
+              );
+            }
+          });
+          return;
+        }
+        if (f === "ramp") l.ramp = e.target.checked;
+        else if (
+          [
+            "beat",
+            "carrier",
+            "level",
+            "pan",
+            "panRate",
+            "panDepth",
+            "rampTo",
+            "rampMin",
+            "driftPct",
+            "driftSec",
+            "delaySec",
+            "stopMin",
+          ].includes(f)
+        )
+          l[f] = +e.target.value;
+        else if (f === "type") {
+          l.type = e.target.value;
+          if (l.type === "noise" || l.type === "sample") {
+            l.beat = 0;
+            l.carrier = 0;
+            l.ramp = false;
+            l.level = Math.min(l.level, 35);
+          }
+          if (l.type === "carrier") {
+            l.ramp = false;
+            if (!l.carrier) l.carrier = 220;
+          }
+          if (l.type !== "noise" && l.type !== "sample" && !l.beat) l.beat = 10;
+          if (l.type !== "noise" && l.type !== "sample" && !l.carrier)
+            l.carrier = 220;
+        } else l[f] = e.target.value;
+        if (
+          ["type", "ramp", "noiseColor", "wave", "panRate"].includes(f) ||
+          e.type === "change"
+        )
+          renderLayers();
+        else {
+          const sub = card.querySelector(".layer-sub");
+          if (sub) sub.textContent = describeLayer(l);
+          const v = e.target.closest(".field")?.querySelector("label b");
+          if (v) {
+            if (f === "beat") v.textContent = (+l.beat).toFixed(1) + " Hz";
+            else if (f === "carrier")
+              v.textContent = Math.round(l.carrier) + " Hz";
+            else if (f === "level") v.textContent = l.level + "%";
+            else if (f === "pan")
+              v.textContent =
+                l.pan === 0
+                  ? "center"
+                  : l.pan < 0
+                    ? Math.abs(l.pan) + "L"
+                    : l.pan + "R";
+            else if (f === "panRate")
+              v.textContent =
+                +l.panRate > 0 ? (+l.panRate).toFixed(3) + " Hz" : "off";
+            else if (f === "panDepth") v.textContent = l.panDepth + "%";
+            else if (f === "rampTo")
+              v.textContent = (+l.rampTo).toFixed(1) + " Hz";
+            else if (f === "rampMin") v.textContent = l.rampMin + " min";
+            else if (f === "driftPct") v.textContent = "±" + l.driftPct + "%";
+            else if (f === "driftSec") v.textContent = l.driftSec + " sec";
+            else if (f === "delaySec") v.textContent = fmt(l.delaySec);
+            else if (f === "stopMin")
+              v.textContent = l.stopMin ? l.stopMin + " min" : "stage end";
+          }
+        }
+        updateMixInfo();
+        drawScope();
+        throttleRebuild();
       }
-    }
-  }
-  const src = context.createBufferSource();
-  src.buffer = buf; src.loop = true;
-  return src;
-}
-
-async function startLive(){
-  getSettingsFromUI();
-  await ensureContext();
-  stopLive(true);
-  graph = buildMix(ac, ac.destination, {live:true, duration:settings.sessionDur, fadeSec:settings.fadeSec});
-  running = true;
-  startedAt = graph.start;
-  $("#toggle").textContent = "■ Stop";
-  $("#toggle").classList.remove("primary");
-  $("#state").textContent = "running";
-  clearInterval(tick);
-  tick = setInterval(onTick, 200);
-  animate();
-}
-function stopLive(silent=false){
-  if(graph && graph.master && ac){
-    const t = ac.currentTime;
-    try{
-      graph.master.gain.cancelScheduledValues(t);
-      graph.master.gain.setTargetAtTime(0.0001, t, 0.04);
-      const stops = graph.stops || [];
-      setTimeout(()=>stops.forEach(n=>{try{n.stop()}catch(e){}}), 180);
-    }catch(e){}
-  }
-  graph = null;
-  running = false;
-  clearInterval(tick); cancelAnimationFrame(raf);
-  $("#toggle").textContent = "▶ Start";
-  $("#toggle").classList.add("primary");
-  $("#state").textContent = "idle";
-  if(!silent) $("#timer").textContent = "00:00";
-  drawScope();
-}
-function rebuildLive(){
-  if(!running || !ac) return;
-  const elapsed = Math.max(0, ac.currentTime - startedAt);
-  const remaining = settings.sessionDur ? Math.max(0.1, settings.sessionDur - elapsed) : 0;
-  const old = graph;
-  if(old && old.master){
-    const t = ac.currentTime;
-    old.master.gain.cancelScheduledValues(t);
-    old.master.gain.setTargetAtTime(0.0001,t,0.04);
-    setTimeout(()=>old.stops.forEach(n=>{try{n.stop()}catch(e){}}),180);
-  }
-  graph = buildMix(ac, ac.destination, {live:true, duration:remaining, fadeSec:Math.min(settings.fadeSec, remaining/2 || settings.fadeSec)});
-}
-function onTick(){
-  if(!running || !ac || !graph) return;
-  const elapsed = Math.max(0, ac.currentTime - startedAt);
-  $("#timer").textContent = fmt(elapsed);
-  if(settings.sessionDur && elapsed >= settings.sessionDur){
-    stopLive();
-    $("#timer").textContent = fmt(settings.sessionDur);
-    setStatus("exportStatus","Session complete.");
-  }
-}
-$("#toggle").onclick = () => running ? stopLive() : startLive();
-$("#panic").onclick = () => { stopLive(); if(ac) ac.suspend(); $("#state").textContent="audio stopped"; };
-addEventListener("keydown", e=>{
-  if(e.target && ["INPUT","SELECT","TEXTAREA"].includes(e.target.tagName)) return;
-  if(e.code==="Space"){ e.preventDefault(); running ? stopLive() : startLive(); }
-  if(e.key.toLowerCase()==="s"){ stopLive(); if(ac) ac.suspend(); }
-});
-
-/* Scope and pulse visual */
-const canvas = $("#scope"), cx = canvas.getContext("2d");
-let timeData = new Uint8Array(2048);
-function resizeScope(){
-  const r = canvas.getBoundingClientRect(), d = devicePixelRatio || 1;
-  canvas.width = Math.max(1, Math.floor(r.width*d));
-  canvas.height = Math.max(1, Math.floor(r.height*d));
-  cx.setTransform(d,0,0,d,0,0);
-}
-addEventListener("resize",()=>{resizeScope();drawScope();});
-resizeScope();
-
-function animate(){
-  if(!running) return;
-  drawScope();
-  raf = requestAnimationFrame(animate);
-}
-function drawScope(){
-  const r = canvas.getBoundingClientRect(), w=r.width, h=r.height;
-  cx.clearRect(0,0,w,h);
-  cx.fillStyle = "#080d15";
-  cx.fillRect(0,0,w,h);
-  cx.strokeStyle = "#17324a";
-  cx.lineWidth = 1;
-  for(let i=0;i<8;i++){
-    const y = h*(i+1)/9; cx.beginPath(); cx.moveTo(0,y); cx.lineTo(w,y); cx.stroke();
-  }
-
-  cx.strokeStyle = "#54dccf";
-  cx.lineWidth = 1.6;
-  cx.beginPath();
-
-  if(running && graph && graph.analyser){
-    graph.analyser.getByteTimeDomainData(timeData);
-    for(let i=0;i<timeData.length;i++){
-      const x = i/(timeData.length-1)*w;
-      const y = h/2 + ((timeData[i]-128)/128)*h*0.42;
-      i ? cx.lineTo(x,y) : cx.moveTo(x,y);
-    }
-    $("#scopeLeft").textContent = "live";
-  } else {
-    const eff = effectiveLayers();
-    for(let i=0;i<w;i++){
-      const t = i/w * 1.25;
-      let yv = 0;
-      for(const l of eff){
-        const level = (l.level/100)/Math.sqrt(Math.max(1,eff.length));
-        if(l.type==="noise") yv += (Math.sin(i*12.9898)*43758.5453%1 - 0.5)*0.08*level;
-        else if(l.type==="carrier") yv += Math.sin(2*Math.PI*(l.carrier/60)*t)*0.15*level;
-        else yv += Math.sin(2*Math.PI*l.beat*t)*(l.type.includes("iso")?0.75:0.38)*level;
+      function onLayerAction(e) {
+        const card = e.target.closest(".layer"),
+          idx = layers.findIndex((x) => x.id === card.dataset.id);
+        if (idx < 0) return;
+        const l = layers[idx],
+          a = e.target.dataset.action;
+        if (a === "toggle") l.enabled = !l.enabled;
+        if (a === "mute") l.mute = !l.mute;
+        if (a === "solo") l.solo = !l.solo;
+        if (a === "dup")
+          layers.splice(idx + 1, 0, { ...deep(l), id: uid(), solo: false });
+        if (a === "remove") layers.splice(idx, 1);
+        renderAll();
+        if (running) throttleRebuild();
       }
-      const y = h/2 - yv*h*0.7;
-      i ? cx.lineTo(i,y) : cx.moveTo(i,y);
-    }
-    $("#scopeLeft").textContent = "preview";
-  }
-  cx.stroke();
 
-  if(settings.motion==="pulse"){
-    const l = dominantLayer();
-    if(l && l.beat){
-      const beat = l.beat;
-      const t = running && ac ? ac.currentTime - startedAt : performance.now()/1000;
-      const ph = (t*beat)%1;
-      const rad = 8 + (ph<0.5?12*(1-ph*2):0);
-      cx.fillStyle = "rgba(84,220,207,.88)";
-      cx.beginPath();
-      cx.arc(w/2,h/2,rad,0,Math.PI*2);
-      cx.fill();
-    }
-  }
-  $("#scopeRight").textContent = `${effectiveLayers().length} audible · ${settings.masterVol}% master`;
-}
-function dominantLayer(){
-  return effectiveLayers()
-    .filter(l=>l.type!=="noise" && l.type!=="carrier")
-    .sort((a,b)=>b.level-a.level)[0];
-}
+      function renderProgram() {
+        const root = $("#program");
+        root.innerHTML = "";
+        if (!program.length) {
+          root.innerHTML =
+            '<div class="help">No stages yet. Tune a stack, then click “Snapshot stage.”</div>';
+          return;
+        }
+        program.forEach((s, i) => {
+          const div = document.createElement("div");
+          div.className =
+            "stage" + (i === programIndex && programRunning ? " active" : "");
+          div.dataset.id = s.id;
+          div.innerHTML = `<div class="stage-num">${i + 1}</div><div><div class="stage-title">${escapeHTML(s.name || "Stage")}</div><div class="stage-meta mono">${timeLabel(s.dur)} · ${effectiveLayers(s.layers || []).length}/${(s.layers || []).length} audible layers</div></div><div class="stage-actions"><button data-action="load">Load</button><button data-action="up">↑</button><button data-action="down">↓</button><button data-action="dup">Duplicate</button><button data-action="remove" class="warn">Remove</button></div>`;
+          root.appendChild(div);
+        });
+        root
+          .querySelectorAll(".stage button")
+          .forEach((b) => b.addEventListener("click", onStageAction));
+      }
+      function onStageAction(e) {
+        const stage = e.target.closest(".stage"),
+          idx = program.findIndex((x) => x.id === stage.dataset.id),
+          a = e.target.dataset.action;
+        if (idx < 0) return;
+        if (a === "load") {
+          layers = (program[idx].layers || []).map(cleanLayer);
+          renderAll();
+          setStatus("programStatus", `Loaded ${program[idx].name}`);
+        }
+        if (a === "up" && idx > 0) {
+          [program[idx - 1], program[idx]] = [program[idx], program[idx - 1]];
+          renderProgram();
+        }
+        if (a === "down" && idx < program.length - 1) {
+          [program[idx + 1], program[idx]] = [program[idx], program[idx + 1]];
+          renderProgram();
+        }
+        if (a === "dup") {
+          program.splice(idx + 1, 0, {
+            ...deep(program[idx]),
+            id: uid(),
+            name: (program[idx].name || "Stage") + " copy",
+          });
+          renderProgram();
+        }
+        if (a === "remove") {
+          program.splice(idx, 1);
+          renderProgram();
+        }
+      }
+      function escapeHTML(s) {
+        return String(s).replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+      }
+      function setStatus(id, msg, ms = 4000) {
+        const el = $("#" + id);
+        el.textContent = msg;
+        if (ms)
+          setTimeout(() => {
+            if (el.textContent === msg) el.textContent = "";
+          }, ms);
+      }
+      function updateMixInfo() {
+        const eff = effectiveLayers();
+        $("#mixInfo").textContent =
+          `${eff.length}/${layers.length} audible layers`;
+      }
+      function getSettingsFromUI() {
+        settings.sessionDur = +$("#sessionDur").value;
+        settings.masterVol = +$("#masterVol").value;
+        settings.limiter = $("#limiter").value;
+        settings.fadeSec = +$("#fadeSec").value;
+        settings.motion = $("#motion").value;
+        settings.notes = $("#notes").value;
+      }
+      let rebuildTimer = 0;
+      function throttleRebuild() {
+        clearTimeout(rebuildTimer);
+        if (running) rebuildTimer = setTimeout(rebuildLive, 180);
+      }
 
-/* Export */
-$("#exportWav").onclick = async () => {
-  getSettingsFromUI();
-  const dur = +$("#exportDur").value, sr = +$("#sampleRate").value;
-  const btn = $("#exportWav"), st = $("#exportStatus");
-  btn.disabled = true;
-  try{
-    st.textContent = "rendering…";
-    const offline = new OfflineAudioContext(2, Math.floor(sr*dur), sr);
-    buildMix(offline, offline.destination, {live:false, duration:dur, fadeSec:settings.fadeSec});
-    const buf = await offline.startRendering();
-    st.textContent = "encoding wav…";
-    const blob = audioBufferToWav(buf);
-    const label = `entrain_plus_${effectiveLayers().length}layers_${Math.round(dur/60)}min.wav`;
-    downloadBlob(blob, label);
-    st.textContent = `saved ${label} · ${(blob.size/1048576).toFixed(1)} MB`;
-  }catch(e){
-    st.textContent = "export failed: " + e.message;
-  }finally{
-    btn.disabled = false;
-  }
-};
-function audioBufferToWav(buf){
-  const n = buf.length, ch = Math.min(2, buf.numberOfChannels), sr = buf.sampleRate;
-  const bytes = 44 + n*ch*2;
-  const ab = new ArrayBuffer(bytes), dv = new DataView(ab);
-  const write = (o,s)=>{ for(let i=0;i<s.length;i++) dv.setUint8(o+i,s.charCodeAt(i)); };
-  write(0,"RIFF"); dv.setUint32(4,36+n*ch*2,true); write(8,"WAVE"); write(12,"fmt ");
-  dv.setUint32(16,16,true); dv.setUint16(20,1,true); dv.setUint16(22,ch,true);
-  dv.setUint32(24,sr,true); dv.setUint32(28,sr*ch*2,true); dv.setUint16(32,ch*2,true); dv.setUint16(34,16,true);
-  write(36,"data"); dv.setUint32(40,n*ch*2,true);
-  const data = []; for(let c=0;c<ch;c++) data.push(buf.getChannelData(c));
-  let o = 44;
-  for(let i=0;i<n;i++){
-    for(let c=0;c<ch;c++){
-      let v = clamp(data[c][i], -1, 1);
-      dv.setInt16(o, v<0 ? v*0x8000 : v*0x7fff, true);
-      o += 2;
-    }
-  }
-  return new Blob([ab],{type:"audio/wav"});
-}
-function downloadBlob(blob, filename){
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url; a.download = safeName(filename);
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),60000);
-}
+      [
+        "sessionDur",
+        "masterVol",
+        "limiter",
+        "fadeSec",
+        "motion",
+        "exportDur",
+        "sampleRate",
+        "stageDur",
+        "notes",
+      ].forEach((id) =>
+        $("#" + id).addEventListener("input", () => {
+          getSettingsFromUI();
+          $("#durLabel").textContent = timeLabel(settings.sessionDur);
+          $("#masterLabel").textContent = settings.masterVol + "%";
+          $("#limiterLabel").textContent = settings.limiter;
+          $("#fadeLabel").textContent = settings.fadeSec + " sec";
+          $("#motionLabel").textContent =
+            settings.motion === "pulse" ? "pulse dot" : "scope only";
+          $("#exportDurLabel").textContent = timeLabel(+$("#exportDur").value);
+          $("#stageDurLabel").textContent = timeLabel(+$("#stageDur").value);
+          $("#sampleRateLabel").textContent =
+            (+$("#sampleRate").value / 1000).toFixed(1) + " kHz";
+          if (running && graph && graph.master)
+            graph.master.gain.setTargetAtTime(
+              settings.masterVol / 100,
+              ac.currentTime,
+              0.04,
+            );
+          if (id === "limiter") rebuildLive();
+        }),
+      );
+      $("#addLayer").onclick = () => {
+        const type = $("#addType").value;
+        const flat =
+          type === "noise" || type === "sample" || type === "carrier";
+        layers.push(
+          layerTemplate(
+            type,
+            type === "binaural" ? 10 : type === "monaural" ? 12 : flat ? 0 : 18,
+            type === "noise" || type === "sample" ? 0 : 240,
+            type === "noise" || type === "sample" ? 18 : 40,
+          ),
+        );
+        renderAll();
+      };
+      $("#clearLayers").onclick = () => {
+        layers = [];
+        renderAll();
+        if (running) rebuildLive();
+      };
+      $("#resetDefault").onclick = defaultStack;
+      $("#addStage").onclick = () => {
+        getSettingsFromUI();
+        if (!layers.length)
+          return setStatus("programStatus", "Add at least one layer first.");
+        program.push({
+          id: uid(),
+          name: $("#stageName").value || "Stage",
+          dur: +$("#stageDur").value,
+          layers: snapshotLayers(),
+        });
+        renderProgram();
+        setStatus("programStatus", "Stage added from current stack.");
+      };
+      $("#clearProgram").onclick = () => {
+        program = [];
+        programIndex = -1;
+        renderProgram();
+      };
 
-defaultStack();
-</script>
-</body>
+      function serializeLayer(l) {
+        const x = deep(l);
+        if (x.type === "sample") x.sampleId = null;
+        return x;
+      }
+      function serializeState({
+        includeLayers = true,
+        includeProgram = true,
+      } = {}) {
+        const obj = { v: 3, settings };
+        if (includeLayers) obj.layers = layers.map(serializeLayer);
+        if (includeProgram)
+          obj.program = program.map((s) => ({
+            ...s,
+            layers: (s.layers || []).map(serializeLayer),
+          }));
+        return obj;
+      }
+      $("#saveLocal").onclick = () => {
+        getSettingsFromUI();
+        localStorage.setItem("entrainStudio", JSON.stringify(serializeState()));
+        setStatus("presetStatus", "Saved to this browser.");
+      };
+      $("#loadLocal").onclick = () => {
+        const raw = localStorage.getItem("entrainStudio");
+        if (!raw) return setStatus("presetStatus", "No local save found.");
+        try {
+          loadObject(JSON.parse(raw));
+          setStatus("presetStatus", "Loaded local save.");
+        } catch (e) {
+          setStatus("presetStatus", "Load failed: " + e.message);
+        }
+      };
+      $("#shareHash").onclick = () => {
+        getSettingsFromUI();
+        const raw = JSON.stringify(serializeState());
+        const b64 = btoa(unescape(encodeURIComponent(raw))).replace(/=+$/g, "");
+        location.hash = "s=" + b64;
+        navigator.clipboard?.writeText(location.href).catch(() => {});
+        setStatus("presetStatus", "Share URL copied or placed in address bar.");
+      };
+      $("#exportJSON").onclick = () => {
+        getSettingsFromUI();
+        downloadBlob(
+          new Blob([JSON.stringify(serializeState(), null, 2)], {
+            type: "application/json",
+          }),
+          "entrain_studio_setup.json",
+        );
+        setStatus("presetStatus", "JSON downloaded.");
+      };
+      $("#importJSON").onchange = async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try {
+          loadObject(JSON.parse(await f.text()));
+          setStatus("presetStatus", "Imported setup.");
+        } catch (err) {
+          setStatus("presetStatus", "Import failed: " + err.message);
+        }
+        e.target.value = "";
+      };
+      $("#exportProgramJSON").onclick = () => {
+        getSettingsFromUI();
+        downloadBlob(
+          new Blob(
+            [
+              JSON.stringify(
+                serializeState({ includeLayers: false, includeProgram: true }),
+                null,
+                2,
+              ),
+            ],
+            { type: "application/json" },
+          ),
+          "entrain_program.json",
+        );
+        setStatus("programStatus", "Program JSON downloaded.");
+      };
+      $("#importProgramJSON").onchange = async (e) => {
+        const f = e.target.files[0];
+        if (!f) return;
+        try {
+          const obj = JSON.parse(await f.text());
+          if (obj.settings) settings = { ...settings, ...obj.settings };
+          program = (obj.program || []).map((s) => ({
+            id: uid(),
+            name: s.name || "Stage",
+            dur: +s.dur || 600,
+            layers: (s.layers || []).map(cleanLayer),
+          }));
+          renderAll();
+          setStatus("programStatus", "Program imported.");
+        } catch (err) {
+          setStatus("programStatus", "Import failed: " + err.message);
+        }
+        e.target.value = "";
+      };
+      function loadObject(obj) {
+        settings = { ...settings, ...(obj.settings || {}) };
+        layers = (obj.layers || layers || []).map(cleanLayer);
+        program = (obj.program || program || []).map((s) => ({
+          id: uid(),
+          name: s.name || "Stage",
+          dur: +s.dur || 600,
+          layers: (s.layers || []).map(cleanLayer),
+        }));
+        renderAll();
+      }
+
+      function ensureContext() {
+        ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+        return ac.resume();
+      }
+      function buildMix(
+        context,
+        destination,
+        opts = {},
+        sourceLayers = layers,
+        sourceSettings = settings,
+      ) {
+        const start =
+          opts.startAt ?? context.currentTime + (opts.live ? 0.035 : 0);
+        const duration = +opts.duration || 0,
+          fade = Math.min(
+            sourceSettings.fadeSec ?? 0,
+            Math.max(0, duration / 2 || 999),
+          );
+        const audible = effectiveLayers(sourceLayers),
+          stops = [];
+        const master = context.createGain();
+        master.gain.setValueAtTime(0, start);
+        master.gain.linearRampToValueAtTime(
+          sourceSettings.masterVol / 100,
+          start + Math.min(0.45, Math.max(0.02, fade || 0.35)),
+        );
+        if (duration && fade > 0) {
+          master.gain.setValueAtTime(
+            sourceSettings.masterVol / 100,
+            start + Math.max(0, duration - fade),
+          );
+          master.gain.linearRampToValueAtTime(0.0001, start + duration);
+        }
+        for (const l of audible) {
+          const out = buildLayer(context, l, start, duration, audible.length);
+          if (out) {
+            out.node.connect(master);
+            stops.push(...out.stops);
+          }
+        }
+        let analyser = null;
+        if (sourceSettings.limiter === "on") {
+          const comp = context.createDynamicsCompressor();
+          comp.threshold.value = -16;
+          comp.knee.value = 18;
+          comp.ratio.value = 8;
+          comp.attack.value = 0.008;
+          comp.release.value = 0.18;
+          master.connect(comp);
+          if (opts.live && context.createAnalyser) {
+            analyser = context.createAnalyser();
+            analyser.fftSize = 2048;
+            comp.connect(analyser);
+            analyser.connect(destination);
+          } else comp.connect(destination);
+        } else {
+          if (opts.live && context.createAnalyser) {
+            analyser = context.createAnalyser();
+            analyser.fftSize = 2048;
+            master.connect(analyser);
+            analyser.connect(destination);
+          } else master.connect(destination);
+        }
+        return { master, stops, analyser, start, duration };
+      }
+      function buildLayer(context, l, sessionStart, sessionDur, audibleCount) {
+        const layerStart = sessionStart + (+l.delaySec || 0);
+        let dur = sessionDur
+          ? Math.max(0.05, sessionDur - (+l.delaySec || 0))
+          : 0;
+        if (l.stopMin)
+          dur = dur ? Math.min(dur, l.stopMin * 60) : l.stopMin * 60;
+        if (sessionDur && layerStart >= sessionStart + sessionDur) return null;
+        const normal = 0.55 / Math.sqrt(Math.max(1, audibleCount));
+        const layerGain = context.createGain();
+        layerGain.gain.setValueAtTime(0, layerStart);
+        layerGain.gain.linearRampToValueAtTime(
+          (l.level / 100) * normal,
+          layerStart + 0.2,
+        );
+        if (dur) {
+          layerGain.gain.setValueAtTime(
+            (l.level / 100) * normal,
+            layerStart + Math.max(0.25, dur - 0.4),
+          );
+          layerGain.gain.linearRampToValueAtTime(0.0001, layerStart + dur);
+        }
+        let node = layerGain;
+        const stops = [],
+          stopAt = dur ? layerStart + dur + 0.05 : 0,
+          carrier = Math.max(20, +l.carrier || 220);
+        if (context.createStereoPanner && l.type !== "binaural") {
+          const p = context.createStereoPanner(),
+            staticPan = clamp((+l.pan || 0) / 100, -1, 1);
+          p.pan.setValueAtTime(staticPan, layerStart);
+          const rate = clamp(+l.panRate || 0, 0, 0.25);
+          if (rate > 0) {
+            const plfo = context.createOscillator(),
+              pg = context.createGain();
+            plfo.type = "sine";
+            plfo.frequency.setValueAtTime(rate, layerStart);
+            // Keep static pan + motion inside StereoPanner's [-1,1] range instead of relying on hard clipping.
+            pg.gain.setValueAtTime(
+              Math.min(
+                clamp((+l.panDepth || 0) / 100, 0, 1),
+                Math.max(0, 1 - Math.abs(staticPan)),
+              ),
+              layerStart,
+            );
+            plfo.connect(pg);
+            pg.connect(p.pan);
+            plfo.start(layerStart);
+            if (stopAt) plfo.stop(stopAt);
+            stops.push(plfo);
+          }
+          p.connect(layerGain);
+          node = p;
+        }
+        if (l.type === "sample") {
+          const buf = sampleStore[l.sampleId];
+          if (!buf) return { node: layerGain, stops };
+          const src = context.createBufferSource();
+          src.buffer = buf;
+          src.loop = true;
+          src.connect(node);
+          src.start(layerStart);
+          if (stopAt) src.stop(stopAt);
+          stops.push(src);
+          return { node: layerGain, stops };
+        }
+        if (l.type === "noise") {
+          const src = createNoiseSource(context, l.noiseColor || "pink");
+          src.connect(node);
+          src.start(layerStart);
+          if (stopAt) src.stop(stopAt);
+          stops.push(src);
+          return { node: layerGain, stops };
+        }
+        if (l.type === "carrier") {
+          const o = context.createOscillator();
+          o.type = "sine";
+          o.frequency.setValueAtTime(carrier, layerStart);
+          o.connect(node);
+          o.start(layerStart);
+          if (stopAt) o.stop(stopAt);
+          stops.push(o);
+          return { node: layerGain, stops };
+        }
+        if (l.type === "binaural" || l.type === "monaural") {
+          const oL = context.createOscillator(),
+            oR = context.createOscillator();
+          oL.type = oR.type = l.wave || "sine";
+          scheduleBeatPair(
+            oL.frequency,
+            oR.frequency,
+            carrier,
+            l,
+            layerStart,
+            dur || Math.max(1, (+l.rampMin || 1) * 60),
+          );
+          const gL = context.createGain(),
+            gR = context.createGain();
+          gL.gain.setValueAtTime(0.5, layerStart);
+          gR.gain.setValueAtTime(0.5, layerStart);
+          if (l.type === "binaural") {
+            const merger = context.createChannelMerger(2);
+            oL.connect(gL);
+            gL.connect(merger, 0, 0);
+            oR.connect(gR);
+            gR.connect(merger, 0, 1);
+            merger.connect(layerGain);
+          } else {
+            oL.connect(gL);
+            oR.connect(gR);
+            gL.connect(node);
+            gR.connect(node);
+          }
+          oL.start(layerStart);
+          oR.start(layerStart);
+          if (stopAt) {
+            oL.stop(stopAt);
+            oR.stop(stopAt);
+          }
+          stops.push(oL, oR);
+          return { node: layerGain, stops };
+        }
+        const car = context.createOscillator();
+        car.type = l.wave || "sine";
+        car.frequency.setValueAtTime(carrier, layerStart);
+        const amp = context.createGain();
+        amp.gain.setValueAtTime(0.5, layerStart);
+        const lfo = context.createOscillator();
+        lfo.type = l.type === "iso-hard" ? "square" : "sine";
+        scheduleBeatParam(
+          lfo.frequency,
+          l,
+          layerStart,
+          dur || Math.max(1, (+l.rampMin || 1) * 60),
+        );
+        const mod = context.createGain();
+        mod.gain.setValueAtTime(l.type === "iso-hard" ? 0.47 : 0.4, layerStart);
+        const offset = context.createConstantSource();
+        offset.offset.setValueAtTime(
+          l.type === "iso-hard" ? 0.5 : 0.56,
+          layerStart,
+        );
+        lfo.connect(mod);
+        mod.connect(amp.gain);
+        offset.connect(amp.gain);
+        car.connect(amp);
+        amp.connect(node);
+        car.start(layerStart);
+        lfo.start(layerStart);
+        offset.start(layerStart);
+        if (stopAt) {
+          car.stop(stopAt);
+          lfo.stop(stopAt);
+          offset.stop(stopAt);
+        }
+        stops.push(car, lfo, offset);
+        return { node: layerGain, stops };
+      }
+      function beatAt(l, t) {
+        const start = Math.max(0.01, +l.beat || 0.01),
+          end = Math.max(0.01, l.ramp ? +l.rampTo || start : start);
+        const rampDur = l.ramp ? Math.max(1, (+l.rampMin || 1) * 60) : 0;
+        let base = rampDur
+          ? start + (end - start) * clamp(t / rampDur, 0, 1)
+          : start;
+        if (l.driftPct > 0) {
+          const cyc = Math.max(4, +l.driftSec || 24);
+          base *=
+            1 + (l.driftPct / 100) * Math.sin((2 * Math.PI * t) / cyc + 1.17);
+        }
+        return Math.max(0.01, base);
+      }
+      function scheduleBeatParam(param, l, start, dur) {
+        const step = Math.max(
+          0.5,
+          Math.min(4, +l.driftPct || 0 ? (+l.driftSec || 24) / 8 : dur),
+        );
+        const n = Math.max(2, Math.ceil(dur / step));
+        param.setValueAtTime(beatAt(l, 0), start);
+        for (let i = 1; i <= n; i++) {
+          const t = Math.min(dur, i * step);
+          param.linearRampToValueAtTime(beatAt(l, t), start + t);
+        }
+      }
+      function scheduleBeatPair(fL, fR, carrier, l, start, dur) {
+        const step = Math.max(
+          0.5,
+          Math.min(4, +l.driftPct || 0 ? (+l.driftSec || 24) / 8 : dur),
+        );
+        const n = Math.max(2, Math.ceil(dur / step));
+        let b = beatAt(l, 0);
+        fL.setValueAtTime(Math.max(20, carrier - b / 2), start);
+        fR.setValueAtTime(Math.max(20, carrier + b / 2), start);
+        for (let i = 1; i <= n; i++) {
+          const t = Math.min(dur, i * step);
+          b = beatAt(l, t);
+          fL.linearRampToValueAtTime(Math.max(20, carrier - b / 2), start + t);
+          fR.linearRampToValueAtTime(Math.max(20, carrier + b / 2), start + t);
+        }
+      }
+      function createNoiseSource(context, color) {
+        const len = Math.max(1, Math.floor(context.sampleRate * 2));
+        const buf = context.createBuffer(2, len, context.sampleRate);
+        for (let ch = 0; ch < 2; ch++) {
+          const d = buf.getChannelData(ch);
+          if (color === "white") {
+            for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+          } else if (color === "brown") {
+            let last = 0;
+            for (let i = 0; i < len; i++) {
+              const w = Math.random() * 2 - 1;
+              last = (last + 0.02 * w) / 1.02;
+              d[i] = last * 3.5;
+            }
+          } else {
+            let b0 = 0,
+              b1 = 0,
+              b2 = 0,
+              b3 = 0,
+              b4 = 0,
+              b5 = 0,
+              b6 = 0;
+            for (let i = 0; i < len; i++) {
+              const w = Math.random() * 2 - 1;
+              b0 = 0.99886 * b0 + w * 0.0555179;
+              b1 = 0.99332 * b1 + w * 0.0750759;
+              b2 = 0.969 * b2 + w * 0.153852;
+              b3 = 0.8665 * b3 + w * 0.3104856;
+              b4 = 0.55 * b4 + w * 0.5329522;
+              b5 = -0.7616 * b5 - w * 0.016898;
+              d[i] = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+              b6 = w * 0.115926;
+            }
+          }
+        }
+        const src = context.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        return src;
+      }
+
+      async function startLive() {
+        getSettingsFromUI();
+        await ensureContext();
+        programRunning = false;
+        programIndex = -1;
+        stopLive(true);
+        graph = buildMix(
+          ac,
+          ac.destination,
+          { live: true, duration: settings.sessionDur },
+          layers,
+          settings,
+        );
+        running = true;
+        startedAt = graph.start;
+        $("#toggle").textContent = "■ Stop mix";
+        $("#toggle").classList.remove("primary");
+        $("#state").textContent = "running";
+        clearInterval(tick);
+        tick = setInterval(onTick, 200);
+        animate();
+      }
+      function stopLive(silent = false) {
+        if (graph && graph.master && ac) {
+          const t = ac.currentTime;
+          try {
+            graph.master.gain.cancelScheduledValues(t);
+            graph.master.gain.setTargetAtTime(0.0001, t, 0.04);
+            const stops = graph.stops || [];
+            setTimeout(
+              () =>
+                stops.forEach((n) => {
+                  try {
+                    n.stop();
+                  } catch (e) {}
+                }),
+              180,
+            );
+          } catch (e) {}
+        }
+        graph = null;
+        running = false;
+        programRunning = false;
+        clearInterval(tick);
+        cancelAnimationFrame(raf);
+        $("#toggle").textContent = "▶ Start mix";
+        $("#toggle").classList.add("primary");
+        $("#runProgram").textContent = "▶ Run program";
+        $("#state").textContent = "idle";
+        if (!silent) $("#timer").textContent = "00:00";
+        drawScope();
+        renderProgram();
+      }
+      function rebuildLive() {
+        if (!running || !ac) return;
+        if (programRunning) return;
+        const elapsed = Math.max(0, ac.currentTime - startedAt),
+          remaining = settings.sessionDur
+            ? Math.max(0.1, settings.sessionDur - elapsed)
+            : 0;
+        const old = graph;
+        if (old && old.master) {
+          const t = ac.currentTime;
+          old.master.gain.cancelScheduledValues(t);
+          old.master.gain.setTargetAtTime(0.0001, t, 0.04);
+          setTimeout(
+            () =>
+              old.stops.forEach((n) => {
+                try {
+                  n.stop();
+                } catch (e) {}
+              }),
+            180,
+          );
+        }
+        graph = buildMix(
+          ac,
+          ac.destination,
+          { live: true, duration: remaining },
+          layers,
+          settings,
+        );
+      }
+      async function startProgram() {
+        getSettingsFromUI();
+        if (!program.length)
+          return setStatus("programStatus", "Add at least one stage first.");
+        await ensureContext();
+        stopLive(true);
+        programRunning = true;
+        programIndex = 0;
+        startProgramStage(0);
+      }
+      function startProgramStage(i) {
+        if (i >= program.length) {
+          stopLive();
+          setStatus("programStatus", "Program complete.");
+          return;
+        }
+        programIndex = i;
+        const st = program[i];
+        layers = (st.layers || []).map(cleanLayer);
+        renderAll();
+        graph = buildMix(
+          ac,
+          ac.destination,
+          { live: true, duration: st.dur },
+          layers,
+          settings,
+        );
+        running = true;
+        programRunning = true;
+        startedAt = graph.start;
+        $("#state").textContent = `program ${i + 1}/${program.length}`;
+        $("#runProgram").textContent = "■ Stop program";
+        clearInterval(tick);
+        tick = setInterval(onTick, 200);
+        animate();
+      }
+      function onTick() {
+        if (!running || !ac || !graph) return;
+        const elapsed = Math.max(0, ac.currentTime - startedAt);
+        $("#timer").textContent = fmt(elapsed);
+        if (programRunning) {
+          const st = program[programIndex];
+          if (elapsed >= st.dur) {
+            const stops = graph.stops || [];
+            try {
+              graph.master.gain.setTargetAtTime(0.0001, ac.currentTime, 0.02);
+            } catch (e) {}
+            setTimeout(
+              () =>
+                stops.forEach((n) => {
+                  try {
+                    n.stop();
+                  } catch (e) {}
+                }),
+              100,
+            );
+            startProgramStage(programIndex + 1);
+          }
+          return;
+        }
+        if (settings.sessionDur && elapsed >= settings.sessionDur) {
+          stopLive();
+          $("#timer").textContent = fmt(settings.sessionDur);
+        }
+      }
+      $("#toggle").onclick = () =>
+        running && !programRunning ? stopLive() : startLive();
+      $("#runProgram").onclick = () =>
+        programRunning ? stopLive() : startProgram();
+      $("#panic").onclick = () => {
+        stopLive();
+        if (ac) ac.suspend();
+        $("#state").textContent = "audio stopped";
+      };
+      addEventListener("keydown", (e) => {
+        if (
+          e.target &&
+          ["INPUT", "SELECT", "TEXTAREA"].includes(e.target.tagName)
+        )
+          return;
+        if (e.code === "Space") {
+          e.preventDefault();
+          running ? stopLive() : startLive();
+        }
+        if (e.key.toLowerCase() === "p") {
+          programRunning ? stopLive() : startProgram();
+        }
+        if (e.key.toLowerCase() === "s") {
+          stopLive();
+          if (ac) ac.suspend();
+        }
+      });
+
+      const canvas = $("#scope"),
+        cx = canvas.getContext("2d");
+      let timeData = new Uint8Array(2048);
+      function resizeScope() {
+        const r = canvas.getBoundingClientRect(),
+          d = devicePixelRatio || 1;
+        canvas.width = Math.max(1, Math.floor(r.width * d));
+        canvas.height = Math.max(1, Math.floor(r.height * d));
+        cx.setTransform(d, 0, 0, d, 0, 0);
+      }
+      addEventListener("resize", () => {
+        resizeScope();
+        drawScope();
+      });
+      resizeScope();
+      function animate() {
+        if (!running) return;
+        drawScope();
+        raf = requestAnimationFrame(animate);
+      }
+      function drawScope() {
+        const r = canvas.getBoundingClientRect(),
+          w = r.width,
+          h = r.height;
+        cx.clearRect(0, 0, w, h);
+        cx.fillStyle = "#080d15";
+        cx.fillRect(0, 0, w, h);
+        cx.strokeStyle = "#17324a";
+        cx.lineWidth = 1;
+        for (let i = 0; i < 8; i++) {
+          const y = (h * (i + 1)) / 9;
+          cx.beginPath();
+          cx.moveTo(0, y);
+          cx.lineTo(w, y);
+          cx.stroke();
+        }
+        cx.strokeStyle = "#54dccf";
+        cx.lineWidth = 1.6;
+        cx.beginPath();
+        if (running && graph && graph.analyser) {
+          graph.analyser.getByteTimeDomainData(timeData);
+          for (let i = 0; i < timeData.length; i++) {
+            const x = (i / (timeData.length - 1)) * w,
+              y = h / 2 + ((timeData[i] - 128) / 128) * h * 0.42;
+            i ? cx.lineTo(x, y) : cx.moveTo(x, y);
+          }
+          $("#scopeLeft").textContent = "live";
+        } else {
+          const eff = effectiveLayers();
+          for (let i = 0; i < w; i++) {
+            const t = (i / w) * 1.25;
+            let yv = 0;
+            for (const l of eff) {
+              const level = l.level / 100 / Math.sqrt(Math.max(1, eff.length));
+              if (l.type === "noise" || l.type === "sample")
+                yv +=
+                  (((Math.sin(i * 12.9898) * 43758.5453) % 1) - 0.5) *
+                  0.08 *
+                  level;
+              else if (l.type === "carrier")
+                yv +=
+                  Math.sin(2 * Math.PI * (l.carrier / 60) * t) * 0.15 * level;
+              else
+                yv +=
+                  Math.sin(2 * Math.PI * l.beat * t) *
+                  (l.type.includes("iso") ? 0.75 : 0.38) *
+                  level;
+            }
+            const y = h / 2 - yv * h * 0.7;
+            i ? cx.lineTo(i, y) : cx.moveTo(i, y);
+          }
+          $("#scopeLeft").textContent = "preview";
+        }
+        cx.stroke();
+        if (settings.motion === "pulse") {
+          const l = dominantLayer();
+          if (l && l.beat) {
+            const t =
+              running && ac
+                ? ac.currentTime - startedAt
+                : performance.now() / 1000;
+            const ph = (t * beatAt(l, t)) % 1;
+            const rad = 8 + (ph < 0.5 ? 12 * (1 - ph * 2) : 0);
+            cx.fillStyle = "rgba(84,220,207,.88)";
+            cx.beginPath();
+            cx.arc(w / 2, h / 2, rad, 0, Math.PI * 2);
+            cx.fill();
+          }
+        }
+        $("#scopeRight").textContent =
+          `${effectiveLayers().length} audible · ${settings.masterVol}% master`;
+      }
+      function dominantLayer() {
+        return effectiveLayers()
+          .filter(
+            (l) =>
+              l.type !== "noise" && l.type !== "carrier" && l.type !== "sample",
+          )
+          .sort((a, b) => b.level - a.level)[0];
+      }
+
+      async function renderWav(label, duration, stages) {
+        getSettingsFromUI();
+        const sr = +$("#sampleRate").value,
+          btns = [$("#exportWav"), $("#exportProgramWav")];
+        btns.forEach((b) => (b.disabled = true));
+        try {
+          setStatus("exportStatus", "rendering…", 0);
+          setStatus("programStatus", "rendering…", 0);
+          let total = duration;
+          if (stages) total = stages.reduce((a, s) => a + (+s.dur || 0), 0);
+          if (!total) throw new Error("Duration is zero.");
+          const offline = new OfflineAudioContext(
+            2,
+            Math.floor(sr * total),
+            sr,
+          );
+          if (stages) {
+            let pos = 0;
+            for (const s of stages) {
+              buildMix(
+                offline,
+                offline.destination,
+                { live: false, duration: s.dur, startAt: pos },
+                (s.layers || []).map(cleanLayer),
+                settings,
+              );
+              pos += s.dur;
+            }
+          } else
+            buildMix(
+              offline,
+              offline.destination,
+              { live: false, duration },
+              layers,
+              settings,
+            );
+          const buf = await offline.startRendering();
+          const blob = audioBufferToWav(buf);
+          downloadBlob(blob, label);
+          setStatus(
+            "exportStatus",
+            `saved ${label} · ${(blob.size / 1048576).toFixed(1)} MB`,
+            8000,
+          );
+          setStatus("programStatus", `saved ${label}`, 8000);
+        } catch (e) {
+          setStatus("exportStatus", "export failed: " + e.message, 8000);
+          setStatus("programStatus", "export failed: " + e.message, 8000);
+        } finally {
+          btns.forEach((b) => (b.disabled = false));
+        }
+      }
+      $("#exportWav").onclick = () =>
+        renderWav(
+          `entrain_studio_stack_${effectiveLayers().length}layers_${Math.round(+$("#exportDur").value / 60)}min.wav`,
+          +$("#exportDur").value,
+          null,
+        );
+      $("#exportProgramWav").onclick = () => {
+        if (!program.length)
+          return setStatus("programStatus", "Add stages first.");
+        renderWav(
+          `entrain_studio_program_${program.length}stages_${Math.round(program.reduce((a, s) => a + s.dur, 0) / 60)}min.wav`,
+          0,
+          program,
+        );
+      };
+      function audioBufferToWav(buf) {
+        const n = buf.length,
+          ch = Math.min(2, buf.numberOfChannels),
+          sr = buf.sampleRate,
+          ab = new ArrayBuffer(44 + n * ch * 2),
+          dv = new DataView(ab),
+          wr = (o, s) => {
+            for (let i = 0; i < s.length; i++)
+              dv.setUint8(o + i, s.charCodeAt(i));
+          };
+        wr(0, "RIFF");
+        dv.setUint32(4, 36 + n * ch * 2, true);
+        wr(8, "WAVE");
+        wr(12, "fmt ");
+        dv.setUint32(16, 16, true);
+        dv.setUint16(20, 1, true);
+        dv.setUint16(22, ch, true);
+        dv.setUint32(24, sr, true);
+        dv.setUint32(28, sr * ch * 2, true);
+        dv.setUint16(32, ch * 2, true);
+        dv.setUint16(34, 16, true);
+        wr(36, "data");
+        dv.setUint32(40, n * ch * 2, true);
+        const data = [];
+        for (let c = 0; c < ch; c++) data.push(buf.getChannelData(c));
+        let o = 44;
+        for (let i = 0; i < n; i++) {
+          for (let c = 0; c < ch; c++) {
+            const v = clamp(data[c][i], -1, 1);
+            dv.setInt16(o, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+            o += 2;
+          }
+        }
+        return new Blob([ab], { type: "audio/wav" });
+      }
+      function downloadBlob(blob, filename) {
+        const url = URL.createObjectURL(blob),
+          a = document.createElement("a");
+        a.href = url;
+        a.download = safeName(filename);
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60000);
+      }
+      $("#copySummary").onclick = () => {
+        getSettingsFromUI();
+        const lines = [
+          "ENTRAIN Studio setup",
+          `Master: ${settings.masterVol}% · limiter ${settings.limiter} · fade ${settings.fadeSec}s`,
+          "Layers:",
+          ...layers.map((l, i) => `${i + 1}. ${describeLayer(l)}`),
+          program.length ? "Program:" : "",
+          ...program.map(
+            (s, i) =>
+              `${i + 1}. ${s.name} · ${timeLabel(s.dur)} · ${effectiveLayers(s.layers).length} audible`,
+          ),
+          layers.some((l) => l.type === "sample")
+            ? "Note: ambience audio buffers are runtime-only; reload local files after JSON/hash import."
+            : "",
+        ];
+        navigator.clipboard
+          ?.writeText(lines.join("\n"))
+          .then(() => setStatus("exportStatus", "Summary copied."))
+          .catch(() => setStatus("exportStatus", lines.join(" | "), 8000));
+      };
+      function loadHash() {
+        if (!location.hash.startsWith("#s=")) return false;
+        try {
+          let b64 = location.hash.slice(3);
+          while (b64.length % 4) b64 += "=";
+          const obj = JSON.parse(decodeURIComponent(escape(atob(b64))));
+          loadObject(obj);
+          setStatus("presetStatus", "Loaded setup from URL.");
+          return true;
+        } catch (e) {
+          setStatus("presetStatus", "Could not load URL setup.");
+          return false;
+        }
+      }
+
+      if (!loadHash()) defaultStack();
+    </script>
+  </body>
 </html>
