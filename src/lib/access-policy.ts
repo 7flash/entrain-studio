@@ -15,6 +15,7 @@ export type AccessDecision = {
   balance: number;
   requiresWallet: boolean;
   staleBalance: boolean;
+  balanceRefreshedAt?: number; // cached wallet balance timestamp; access is not a live on-chain check.
 };
 
 export function authFromRequest(req: Request) {
@@ -35,6 +36,7 @@ export function decideSoundtrackAccess(
       balance: 0,
       requiresWallet: false,
       staleBalance: false,
+      balanceRefreshedAt: auth?.lastRefreshedAt,
     };
   const minTokens = Number(template.minTokens || 0);
   const balance = Number(auth?.balance || 0);
@@ -47,6 +49,7 @@ export function decideSoundtrackAccess(
       balance,
       requiresWallet: false,
       staleBalance: false,
+      balanceRefreshedAt: auth?.lastRefreshedAt,
     };
   if (!auth)
     return {
@@ -67,29 +70,45 @@ export function decideSoundtrackAccess(
       balance,
       requiresWallet: false,
       staleBalance: true,
+      balanceRefreshedAt: auth.lastRefreshedAt,
     };
   return {
     ok: true,
     code: "ok",
-    message: "Unlocked",
+    message: "Unlocked using cached wallet balance from last verification.",
     minTokens,
     balance,
     requiresWallet: false,
     staleBalance: false,
+    balanceRefreshedAt: auth.lastRefreshedAt,
   };
 }
+
+export type LibraryAccessDecision = {
+  ok: boolean;
+  code: "ok" | "wallet_required";
+  message: string;
+  balance?: number;
+  balanceRefreshedAt?: number;
+};
 
 export function decideLibraryAccess(
   auth: WalletAuth,
   action: LibraryAction = "save",
-) {
+): LibraryAccessDecision {
   if (!auth)
     return {
       ok: false,
       code: "wallet_required",
       message: `Connect Phantom to ${action} tracks in your private library.`,
     };
-  return { ok: true, code: "ok", message: "Wallet library unlocked" };
+  return {
+    ok: true,
+    code: "ok",
+    message: "Wallet library unlocked",
+    balance: auth.balance,
+    balanceRefreshedAt: auth.lastRefreshedAt,
+  };
 }
 
 export function accessJson(

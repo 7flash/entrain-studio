@@ -32,6 +32,7 @@ function freshRow() {
     sortOrder: 100,
     isPublished: true,
     status: "published",
+    copyReviewed: false,
     sessionText: JSON.stringify(session, null, 2),
     lineageText: JSON.stringify(
       {
@@ -52,6 +53,7 @@ function App() {
   const analysis = parsed ? analyzeSession(parsed) : null;
   const claim = claimRisk(
     `${selected.title} ${selected.summary} ${selected.description} ${selected.unlockNote}`,
+    { reviewed: !!selected.copyReviewed },
   );
   const lineage = parseLineage();
   const refMatch =
@@ -187,6 +189,19 @@ function App() {
                 <option value="published">published</option>
                 <option value="archived">archived</option>
               </select>
+            </Field>
+            <Field label="Copy reviewed">
+              <label className="pill">
+                <input
+                  type="checkbox"
+                  checked={!!selected.copyReviewed}
+                  onChange={(e: any) => {
+                    selected.copyReviewed = !!e.currentTarget.checked;
+                    paint();
+                  }}
+                />{" "}
+                allow publish after manual claim review
+              </label>
             </Field>
             <Field label="Reference spec">
               <select
@@ -410,6 +425,7 @@ function parseSelectedSession() {
 function editRow(r: any) {
   selected = {
     ...r,
+    copyReviewed: !!r.copyReviewed,
     tags: Array.isArray(r.tags) ? r.tags.join(", ") : r.tags,
     sessionText: JSON.stringify(r.session, null, 2),
     lineageText: JSON.stringify(
@@ -503,6 +519,7 @@ async function saveRow() {
       : null;
     const c = claimRisk(
       `${selected.title} ${selected.summary} ${selected.description} ${selected.unlockNote}`,
+      { reviewed: !!selected.copyReviewed },
     );
     const publishing = selected.status === "published" || selected.isPublished;
     if (publishing && (!a.publishable || c.risky)) {

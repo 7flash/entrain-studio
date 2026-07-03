@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { ADMIN_TOKEN } from "@/lib/config";
+import { isAdminRequest } from "@/lib/admin-auth";
 import { sanitizeSession } from "@/format/entrain-format";
 import { analyzeSession, claimRisk } from "@/format/protocol-analyzer";
 import { compareToReference } from "@/format/protocol-reference";
@@ -28,18 +28,11 @@ type Body = {
   defaultExportSec?: number;
   lineageJson?: any;
   seedRevision?: string;
+  copyReviewed?: boolean;
 };
 
-function isAdmin(req: Request, body?: Body | null) {
-  if (!ADMIN_TOKEN) return process.env.NODE_ENV !== "production";
-  return (
-    req.headers.get("x-admin-token") === ADMIN_TOKEN ||
-    body?.adminToken === ADMIN_TOKEN
-  );
-}
-
 export async function GET(req: Request) {
-  if (!isAdmin(req))
+  if (!isAdminRequest(req))
     return json({ ok: false, error: "admin token required" }, { status: 401 });
   const rows = db.templates.select().orderBy("sortOrder", "ASC").all();
   return json({ ok: true, soundtracks: rows });
@@ -47,7 +40,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const body = await readJson<Body>(req);
-  if (!isAdmin(req, body))
+  if (!isAdminRequest(req, body))
     return json({ ok: false, error: "admin token required" }, { status: 401 });
   const action = body?.action || "upsert";
   const slug = String(body?.slug || "")
@@ -88,6 +81,7 @@ export async function POST(req: Request) {
   const referenceMatch = compareToReference(session, lineageJson?.referenceId);
   const claims = claimRisk(
     `${body?.title || ""} ${body?.summary || ""} ${body?.description || ""} ${body?.unlockNote || ""}`,
+    { reviewed: !!body?.copyReviewed },
   );
   const wantsPublished =
     body?.isPublished !== false &&
@@ -135,6 +129,7 @@ export async function POST(req: Request) {
     lineageJson,
     referenceMatchJson: referenceMatch,
     seedRevision: String(body?.seedRevision || "admin"),
+    copyReviewed: !!body?.copyReviewed,
   };
   const existing = db.templates.select().where({ slug }).first() as any;
   if (existing) db.templates.update(row).where({ slug }).run();

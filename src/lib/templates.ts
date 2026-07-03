@@ -55,7 +55,7 @@ function lineage(
   };
 }
 
-export const BUILTIN_SOUNDTRACK_REVISION = "builtin-v10-admin-audit";
+export const BUILTIN_SOUNDTRACK_REVISION = "builtin-v16-security-hardening";
 
 export const seedTemplates: EntrainTemplateV1[] = [
   t({
@@ -737,11 +737,57 @@ export function soundtrackSummary(slug: string) {
 }
 
 export function patternHash(session: EntrainSessionV1) {
-  const json = JSON.stringify(sanitizeSession(session));
+  const json = stableStringify(signalProjection(sanitizeSession(session)));
   let h = 2166136261;
   for (let i = 0; i < json.length; i++) {
     h ^= json.charCodeAt(i);
     h = Math.imul(h, 16777619);
   }
   return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+function signalProjection(session: EntrainSessionV1) {
+  return {
+    format: session.format,
+    durationMin: session.durationMin,
+    loop: session.loop || { mode: "hold-last", crossfadeSec: 0 },
+    export: session.export || {},
+    layers: session.layers.map((l) => ({
+      type: l.type,
+      carrierHz: l.carrierHz,
+      wave: l.wave,
+      noiseColor: l.noiseColor,
+      ambienceRecipe: l.ambienceRecipe,
+      seed: l.seed,
+      pan: l.pan,
+      panMotion: l.panMotion,
+      sampleName: l.sampleName,
+      sampleLoop: l.sampleLoop,
+      mute: l.mute,
+      solo: l.solo,
+      keyframes: l.keyframes.map((k) => ({
+        tMin: k.tMin,
+        beatHz: k.beatHz,
+        gainPct: k.gainPct,
+      })),
+    })),
+  };
+}
+
+function stableStringify(value: unknown): string {
+  if (Array.isArray(value))
+    return "[" + value.map(stableStringify).join(",") + "]";
+  if (value && typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    return (
+      "{" +
+      Object.keys(obj)
+        .filter((k) => obj[k] !== undefined)
+        .sort()
+        .map((k) => JSON.stringify(k) + ":" + stableStringify(obj[k]))
+        .join(",") +
+      "}"
+    );
+  }
+  return JSON.stringify(value);
 }

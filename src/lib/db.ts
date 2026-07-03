@@ -31,6 +31,7 @@ export const db = new Database(
       lineageJson: z.any().optional(),
       referenceMatchJson: z.any().optional(),
       seedRevision: z.string().default("builtin-v10"),
+      copyReviewed: z.boolean().default(false),
     }),
     walletChallenges: z.object({
       publicKey: z.string(),
@@ -38,6 +39,7 @@ export const db = new Database(
       message: z.string(),
       expiresAt: z.number(),
       used: z.boolean().default(false),
+      consumeToken: z.string().optional(),
     }),
     walletSessions: z.object({
       sessionId: z.string(),
@@ -123,4 +125,5 @@ export type TemplateRow = {
   lineageJson?: any;
   referenceMatchJson?: any;
   seedRevision?: string;
+  copyReviewed?: boolean;
 };

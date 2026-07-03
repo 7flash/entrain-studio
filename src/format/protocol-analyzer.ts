@@ -200,31 +200,41 @@ function push(
 }
 
 const RISKY_CLAIMS = [
-  /treats?\b/i,
-  /cures?\b/i,
-  /heals?\b/i,
-  /diagnos/i,
-  /medical\s+treatment/i,
-  /guarantee[sd]?\b/i,
-  /enlightenment/i,
-  /psychic/i,
-  /telepath/i,
-  /hormone/i,
-  /dopamine/i,
-  /acetylcholine/i,
-  /human\s+growth\s+hormone/i,
-  /cortisol/i,
-  /alzheimer/i,
-  /ptsd/i,
-  /depression/i,
-  /anxiety\s+disorder/i,
-  /seizure/i,
+  /\b(?:treats?|cures?|heals?|diagnos(?:e|es|is|tic)|prevents?|reverses?)\b.{0,60}\b(?:depression|anxiety|ptsd|alzheimer|seizure|epilepsy|medical|disorder|disease|illness)\b/i,
+  /\b(?:boosts?|increases?|raises?|lowers?|reduces?|regulates?|balances?|releases?|stimulates?)\b.{0,50}\b(?:dopamine|acetylcholine|cortisol|hormone|human\s+growth\s+hormone|hgh)\b/i,
+  /\bguarantee[sd]?\b.{0,60}\b(?:focus|sleep|meditation|relaxation|entrainment|results?)\b/i,
+  /\b(?:enlightenment|psychic|telepathy|telepathic|remote\s+viewing)\b/i,
+  /\bmedical\s+treatment\b/i,
 ];
-export function claimRisk(text: string) {
-  const hits = RISKY_CLAIMS.filter((rx) => rx.test(text || "")).map((rx) =>
-    rx.source.replace(/\\b|\\s\+/g, " "),
-  );
-  return { risky: hits.length > 0, hits };
+const DISCLAIMER_WINDOW =
+  /(?:not|isn['’]?t|doesn['’]?t|won['’]?t|no|never|without|avoid|skip|consult|disclaimer|not\s+a\s+medical)/i;
+
+export function claimRisk(text: string, opts: { reviewed?: boolean } = {}) {
+  if (opts.reviewed)
+    return { risky: false, reviewed: true, hits: [] as string[] };
+  const source = String(text || "");
+  const hits: string[] = [];
+  for (const rx of RISKY_CLAIMS) {
+    const matches =
+      source.match(
+        new RegExp(
+          rx.source,
+          rx.flags.includes("g") ? rx.flags : rx.flags + "g",
+        ),
+      ) || [];
+    for (const match of matches) {
+      const idx = source.toLowerCase().indexOf(match.toLowerCase());
+      const context = source.slice(
+        Math.max(0, idx - 80),
+        Math.min(source.length, idx + match.length + 80),
+      );
+      if (DISCLAIMER_WINDOW.test(context) && !/\bguarantee[sd]?\b/i.test(match))
+        continue;
+      hits.push(rx.source.replace(/\\b|\\s\+/g, " "));
+      break;
+    }
+  }
+  return { risky: hits.length > 0, reviewed: false, hits };
 }
 
 export function analysisBadge(a: ProtocolAnalysis) {

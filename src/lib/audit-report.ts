@@ -28,6 +28,7 @@ export type AuditInputRow = {
   referenceMatchJson?: any;
   lineageJson?: any;
   seedRevision?: string;
+  copyReviewed?: boolean;
 };
 
 export type AuditRow = {
@@ -104,6 +105,7 @@ export function auditRow(
   const referenceMatch = compareToReference(session, referenceId);
   const claims = claimRisk(
     `${row.title || ""} ${row.summary || ""} ${row.description || ""} ${row.unlockNote || ""}`,
+    { reviewed: !!row.copyReviewed },
   );
   const computedHash = patternHash(session);
   const signalMap = signalMapForSession(session);

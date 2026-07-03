@@ -1,5 +1,5 @@
 import bs58 from "bs58";
-import { verify } from "@noble/ed25519";
+import { verifyAsync } from "@noble/ed25519";
 import { db } from "./db";
 import { getTokenBalance } from "./solana";
 import { ALLOW_DEV_UNLOCK, TOKEN_DISPLAY_NAME } from "./config";
@@ -49,12 +49,19 @@ export async function verifyWallet(
     const msgBytes = new TextEncoder().encode(challenge.message);
     const sigBytes = bs58.decode(signature);
     const pubBytes = bs58.decode(publicKey);
-    const ok = await verify(sigBytes, msgBytes, pubBytes);
+    const ok = await verifyAsync(sigBytes, msgBytes, pubBytes);
     if (!ok) throw new Error("Invalid wallet signature");
 
-    try {
-      challenge.used = true;
-    } catch {}
+    const consumeToken = crypto.randomUUID();
+    db.walletChallenges
+      .update({ used: true, consumeToken })
+      .where({ publicKey, nonce, used: false })
+      .run();
+    const consumed = db.walletChallenges
+      .select()
+      .where({ publicKey, nonce, used: true, consumeToken })
+      .first() as any;
+    if (!consumed) throw new Error("Challenge already used");
     return await createWalletSession(publicKey);
   });
 }

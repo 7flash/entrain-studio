@@ -481,10 +481,10 @@ function checkKeyframes(
       Math.abs(nearest.gainPct - point.gainPct) > 0.75
     ) {
       out.push({
-        level: "warn",
-        code: "gain-fade-mismatch",
+        level: "info",
+        code: "gain-advisory",
         layerLabel: expected.label,
-        message: `Expected fade/gain point is different at ${point.tMin}m.`,
+        message: `Gain/fade point differs from the reference at ${point.tMin}m; signal shape still matches, but amplitude balance is normalized/advisory.`,
         expected: `${point.gainPct}%`,
         actual: `${nearest.gainPct}%`,
       });

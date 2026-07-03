@@ -6,6 +6,7 @@ type RpcTokenAccount = {
     data: {
       parsed: {
         info: {
+          mint?: string;
           tokenAmount: { uiAmount: number | null; uiAmountString?: string };
         };
       };
@@ -38,7 +39,9 @@ export async function getTokenBalance(publicKey: string, mint = TOKEN_MINT) {
       let total = 0;
       for (const account of (payload.result?.value ||
         []) as RpcTokenAccount[]) {
-        const amt = account.account.data.parsed.info.tokenAmount;
+        const info = account.account.data.parsed.info;
+        if (info.mint && info.mint !== mint) continue;
+        const amt = info.tokenAmount;
         total += amt.uiAmount ?? Number(amt.uiAmountString || 0);
       }
       return total;
