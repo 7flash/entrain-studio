@@ -32,6 +32,11 @@ let syncBusy = false;
 let syncFollowing = false;
 let syncSignature = "";
 let pollTimer: any = null;
+let heartbeatTimer: any = null;
+let clockOffsetMs = 0;
+let clockRttMs = 0;
+let lastDriftSec = 0;
+const clientId = getClientId();
 
 function App() {
   const locked = !session;
@@ -145,13 +150,15 @@ function GroupListenCard({ locked }: { locked: boolean }) {
   const share = room
     ? `${location.origin}/soundtracks/${encodeURIComponent(room.slug || slug)}?room=${encodeURIComponent(room.roomId)}`
     : "";
+  const signedOffset = room ? roomOffsetSigned(room) : 0;
+  const cueing = room?.state === "playing" && signedOffset < -0.05;
   return (
     <div className="notice good sync-card">
       <strong>Group listening</strong>
       <p className="small">
-        Synced rooms use server time to start every listener at the same
-        soundtrack position. Browsers still require each person to click Join
-        synced listening once before audio can start.
+        Synced rooms calibrate browser clock offset, show listener presence, and
+        let the host cue a shared countdown. Audio is still generated locally in
+        each browser, so everyone must click Join once.
       </p>
       <div className="tagrow" style={{ marginBottom: "8px" }}>
         {room ? (
@@ -159,17 +166,47 @@ function GroupListenCard({ locked }: { locked: boolean }) {
         ) : (
           <span className="pill">no room</span>
         )}
-        {room ? <span className="pill">{room.state}</span> : null}
+        {room ? (
+          <span className="pill">{cueing ? "countdown" : room.state}</span>
+        ) : null}
         {room ? (
           <span className="pill mono">
-            position {fmtTime(roomOffset(room))}
+            {cueing
+              ? `starts in ${Math.ceil(-signedOffset)}s`
+              : `position ${fmtTime(roomPosition(room))}`}
+          </span>
+        ) : null}
+        {room ? (
+          <span className="pill mono">
+            listeners {room.participantCount || 0}
           </span>
         ) : null}
         {isHost ? <span className="pill unlocked">host controls</span> : null}
         {syncFollowing ? (
           <span className="pill unlocked">following</span>
         ) : null}
+        {clockRttMs ? (
+          <span className="pill mono">
+            clock ±{Math.round(clockRttMs / 2)}ms
+          </span>
+        ) : null}
+        {syncFollowing ? (
+          <span className="pill mono">drift {lastDriftSec.toFixed(2)}s</span>
+        ) : null}
       </div>
+      {room?.participants?.length ? (
+        <div className="tagrow" style={{ marginBottom: "8px" }}>
+          {room.participants.slice(0, 12).map((p: any) => (
+            <span className="pill" key={p.clientId}>
+              {p.isHost ? "★ " : ""}
+              {p.label || "listener"}
+            </span>
+          ))}
+          {room.participants.length > 12 ? (
+            <span className="pill">+{room.participants.length - 12} more</span>
+          ) : null}
+        </div>
+      ) : null}
       <div className="tagrow">
         <button
           className="btn"
@@ -192,11 +229,20 @@ function GroupListenCard({ locked }: { locked: boolean }) {
         ) : null}
         {isHost ? (
           <button
+            className="btn primary"
+            disabled={syncBusy}
+            onClick={() => controlRoom("start", 10)}
+          >
+            Cue 10s start
+          </button>
+        ) : null}
+        {isHost ? (
+          <button
             className="btn"
             disabled={syncBusy}
-            onClick={() => controlRoom("start")}
+            onClick={() => controlRoom("start", 0)}
           >
-            Start room
+            Start now
           </button>
         ) : null}
         {isHost ? (
@@ -378,6 +424,7 @@ async function createRoom() {
   syncMessage = "creating room…";
   paint();
   try {
+    await calibrateClock();
     const res = await fetch("/api/sync/rooms", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -392,8 +439,9 @@ async function createRoom() {
     url.searchParams.set("room", roomId);
     history.replaceState(null, "", url.toString());
     syncMessage =
-      "room created. Copy the room link, then press Start room when everyone has joined.";
+      "room created. Copy the room link, have listeners click Join, then use Cue 10s start.";
     startRoomPoll();
+    await heartbeatRoom();
   } catch (e: any) {
     syncMessage = e.message || "room create failed";
   }
@@ -407,6 +455,7 @@ async function loadRoom(id: string) {
   syncMessage = "loading room…";
   paint();
   try {
+    await calibrateClock();
     const res = await fetch(
       `/api/sync/rooms/${encodeURIComponent(id.toUpperCase())}`,
     ).then((r) => r.json());
@@ -422,6 +471,7 @@ async function loadRoom(id: string) {
     }
     syncMessage = `joined room ${roomId}. Unlock the soundtrack, then click Join synced listening.`;
     startRoomPoll();
+    await heartbeatRoom();
   } catch (e: any) {
     syncMessage = e.message || "room load failed";
   }
@@ -439,6 +489,8 @@ async function pollRoom() {
     room = res.room;
     const sig = `${room.state}:${room.startedAt}:${Math.round(room.pausedOffsetSec * 10)}`;
     if (syncFollowing && sig !== syncSignature) await applyRoomState();
+    else if (syncFollowing && room.state === "playing")
+      await correctDriftIfNeeded();
     else paint();
   } catch (e: any) {
     syncMessage = e.message || "room polling failed";
@@ -448,13 +500,17 @@ async function pollRoom() {
     syncSignature = "";
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    heartbeatTimer = null;
     paint();
   }
 }
 
 function startRoomPoll() {
   if (pollTimer) clearInterval(pollTimer);
-  pollTimer = setInterval(pollRoom, 2500);
+  if (heartbeatTimer) clearInterval(heartbeatTimer);
+  pollTimer = setInterval(pollRoom, 2000);
+  heartbeatTimer = setInterval(heartbeatRoom, 10_000);
 }
 
 async function joinSynced() {
@@ -463,6 +519,8 @@ async function joinSynced() {
   if (!session) await unlock();
   if (!session) return;
   syncFollowing = true;
+  await calibrateClock();
+  await heartbeatRoom();
   await pollRoom();
   await applyRoomState(true);
 }
@@ -473,44 +531,134 @@ async function applyRoomState(force = false) {
   if (!force && sig === syncSignature) return;
   syncSignature = sig;
   if (room.state === "playing") {
-    const offset = roomOffset(room);
+    const offset = roomOffsetSigned(room);
     engine.stop();
-    await engine.start({ loopPattern: true, offsetSec: offset });
-    syncMessage = `synced to room ${room.roomId} at ${fmtTime(offset)}. Keep this tab awake for best alignment.`;
+    if (offset < -0.08) {
+      await engine.start({
+        loopPattern: true,
+        offsetSec: 0,
+        delaySec: -offset,
+      });
+      syncMessage = `armed for room ${room.roomId}. Shared start in ${Math.ceil(-offset)}s.`;
+    } else {
+      await engine.start({ loopPattern: true, offsetSec: Math.max(0, offset) });
+      syncMessage = `synced to room ${room.roomId} at ${fmtTime(Math.max(0, offset))}. Keep this tab awake for best alignment.`;
+    }
+    lastDriftSec = 0;
     draw();
   } else {
     if (engine.running) engine.stop();
     syncMessage =
       room.state === "paused"
-        ? `room paused at ${fmtTime(roomOffset(room))}`
+        ? `room paused at ${fmtTime(roomPosition(room))}`
         : "room idle. Waiting for host to start.";
   }
   paint();
 }
 
-async function controlRoom(action: "start" | "pause" | "stop") {
+async function correctDriftIfNeeded() {
+  if (
+    !room ||
+    !session ||
+    room.state !== "playing" ||
+    !syncFollowing ||
+    !engine.running
+  )
+    return;
+  const desired = roomOffsetSigned(room);
+  if (desired < 0) {
+    paint();
+    return;
+  }
+  const actual = (engine as any).positionSec
+    ? (engine as any).positionSec()
+    : desired;
+  lastDriftSec = actual - desired;
+  if (Math.abs(lastDriftSec) > 0.45) {
+    engine.stop();
+    await engine.start({ loopPattern: true, offsetSec: desired });
+    syncMessage = `corrected ${lastDriftSec.toFixed(2)}s room drift; now at ${fmtTime(desired)}.`;
+    lastDriftSec = 0;
+    draw();
+  }
+  paint();
+}
+
+async function controlRoom(action: "start" | "pause" | "stop", delaySec = 0) {
   if (!roomId || !roomHostKey) return;
   syncBusy = true;
-  syncMessage = `${action} room…`;
+  syncMessage =
+    action === "start" && delaySec
+      ? `cueing room start in ${delaySec}s…`
+      : `${action} room…`;
   paint();
   try {
+    await calibrateClock();
     const res = await fetch(
       `/api/sync/rooms/${encodeURIComponent(roomId)}/control`,
       {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ action, hostKey: roomHostKey }),
+        body: JSON.stringify({ action, hostKey: roomHostKey, delaySec }),
       },
     ).then((r) => r.json());
     if (!res.ok) throw new Error(res.error || "room control failed");
     room = res.room;
     syncFollowing = true;
+    await heartbeatRoom();
     await applyRoomState(true);
   } catch (e: any) {
     syncMessage = e.message || "room control failed";
   }
   syncBusy = false;
   paint();
+}
+
+async function heartbeatRoom() {
+  if (!roomId) return;
+  try {
+    const label = wallet.publicKey
+      ? `${wallet.publicKey.slice(0, 4)}…${wallet.publicKey.slice(-4)}`
+      : clientId.slice(0, 6);
+    const res = await fetch(
+      `/api/sync/rooms/${encodeURIComponent(roomId)}/presence`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          clientId,
+          label,
+          hostKey: roomHostKey,
+          clientOffsetMs: Math.round(clockOffsetMs),
+          rttMs: Math.round(clockRttMs),
+        }),
+      },
+    ).then((r) => r.json());
+    if (res.ok) {
+      room = res.room;
+      paint();
+    }
+  } catch {}
+}
+
+async function calibrateClock() {
+  let best: { offset: number; rtt: number } | null = null;
+  for (let i = 0; i < 4; i++) {
+    const t0 = Date.now();
+    const res = await fetch("/api/sync/clock", { cache: "no-store" }).then(
+      (r) => r.json(),
+    );
+    const t1 = Date.now();
+    if (!res.ok) continue;
+    const rtt = t1 - t0;
+    const offset = Number(res.serverNow) + rtt / 2 - t1;
+    if (!best || rtt < best.rtt) best = { offset, rtt };
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  }
+  if (best) {
+    clockOffsetMs = best.offset;
+    clockRttMs = best.rtt;
+  }
 }
 
 async function copyRoomLink() {
@@ -521,12 +669,15 @@ async function copyRoomLink() {
   paint();
 }
 
-function roomOffset(r: any) {
-  const age =
-    r?.state === "playing"
-      ? Math.max(0, Date.now() - Number(r.serverNow || Date.now())) / 1000
-      : 0;
-  return Math.max(0, Number(r?.elapsedSec || 0) + age);
+function roomOffsetSigned(r: any) {
+  if (!r) return 0;
+  const nowServer = Date.now() + clockOffsetMs;
+  if (r.state === "playing" && Number(r.startedAt || 0) > 0)
+    return (nowServer - Number(r.startedAt)) / 1000;
+  return Math.max(0, Number(r.pausedOffsetSec || 0));
+}
+function roomPosition(r: any) {
+  return Math.max(0, roomOffsetSigned(r));
 }
 
 function fmtTime(sec: number) {
@@ -537,6 +688,16 @@ function fmtTime(sec: number) {
   return h
     ? `${h}:${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`
     : `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+function getClientId() {
+  const key = "entrain:sync-client-id";
+  let id = localStorage.getItem(key);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(key, id);
+  }
+  return id;
 }
 
 function cloneToEditor() {
@@ -601,6 +762,12 @@ export default async function mount() {
   if (initialRoom) await loadRoom(initialRoom);
   return () => {
     if (pollTimer) clearInterval(pollTimer);
+    if (heartbeatTimer) clearInterval(heartbeatTimer);
+    if (roomId)
+      fetch(
+        `/api/sync/rooms/${encodeURIComponent(roomId)}/presence?clientId=${encodeURIComponent(clientId)}`,
+        { method: "DELETE" },
+      ).catch(() => {});
     engine.stop();
     render(null, root);
   };

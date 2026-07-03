@@ -79,6 +79,17 @@ export const db = new Database(
       updatedAt: z.number(),
       expiresAt: z.number(),
     }),
+    syncRoomPresence: z.object({
+      roomId: z.string(),
+      clientId: z.string(),
+      label: z.string().default("listener"),
+      publicKey: z.string().optional(),
+      isHost: z.boolean().default(false),
+      clientOffsetMs: z.number().optional(),
+      rttMs: z.number().optional(),
+      joinedAt: z.number(),
+      lastSeenAt: z.number(),
+    }),
   },
   {
     timestamps: true,

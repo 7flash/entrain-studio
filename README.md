@@ -1,4 +1,4 @@
-# ENTRAIN TradJS Server v0.11
+# ENTRAIN TradJS Server v0.13
 
 Server-backed ENTRAIN with a first-class **pattern format**, database-backed **ready brainwave soundtracks**, a free editor, wallet-saved private library, Phantom/SPL-token gates, and a publish-time protocol analyzer.
 
@@ -315,3 +315,26 @@ New pieces:
 - Client audio engine can start from a pattern offset, so late joiners begin at the same soundtrack position rather than from the beginning.
 
 Important limitation: Web Audio oscillator phase is not guaranteed identical between devices, and browser autoplay rules require every listener to click before audio begins. The synchronization target is soundtrack position and timing, not sample-identical phase across machines.
+
+
+## v0.12 group synced listening
+
+- Added database-backed sync rooms.
+- Soundtrack pages can create/share a room link.
+- Host controls can start, pause, and stop room playback.
+- Late joiners calculate the current soundtrack offset from server time and start locally at the correct position.
+
+## v0.13 sync accuracy and room presence pass
+
+This pass upgrades group listening from a simple room timer into a more usable listen-party system:
+
+- Added `GET /api/sync/clock` for browser/server clock calibration.
+- Added room presence heartbeats with `syncRoomPresence` rows.
+- Soundtrack room cards now show listener count, host presence, and participant labels.
+- Host can use **Cue 10s start** so everyone sees/hears a shared countdown instead of an abrupt immediate start.
+- Client playback supports scheduled starts with `delaySec`, so users who joined before the countdown can be armed ahead of time.
+- Client engine exposes `positionSec()` so the synced listener can detect drift.
+- Room polling performs coarse drift correction by re-syncing when a tab has drifted too far from the server-time position.
+- Presence is best-effort and expires automatically after short inactivity; audio generation remains local in each browser.
+
+Limitations: browser autoplay policy still requires a user click, network jitter still exists, and oscillator phase is not guaranteed sample-identical across devices. The feature syncs timeline position well enough for communal listening, not metrology-grade audio phase.

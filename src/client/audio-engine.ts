@@ -16,6 +16,9 @@ type Graph = {
   analyser: AnalyserNode;
   stops: AudioScheduledSourceNode[];
   startedAt: number;
+  offsetSec: number;
+  loopPattern: boolean;
+  patternSec: number;
 };
 
 type BuildOptions = {
@@ -25,6 +28,7 @@ type BuildOptions = {
   sampleRate?: number;
   loopPattern?: boolean;
   offsetSec?: number;
+  delaySec?: number;
 };
 
 export function createAudioEngine(getSession: () => EntrainSessionV1) {
@@ -305,8 +309,9 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
   }
 
   function build(ctx: BaseAudioContext, dest: AudioNode, opts: BuildOptions) {
+    const delay = opts.live ? Math.max(0.04, opts.delaySec || 0.04) : 0;
     const session = getSession(),
-      start = ctx.currentTime + (opts.live ? 0.04 : 0),
+      start = ctx.currentTime + delay,
       dur = opts.durSec || session.durationMin * 60;
     const master = ctx.createGain();
     const peak = 0.75;
@@ -367,10 +372,26 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       analyser.fftSize = 2048;
       comp.connect(analyser);
       analyser.connect(dest);
-      return { master, analyser, stops, startedAt: start };
+      return {
+        master,
+        analyser,
+        stops,
+        startedAt: start,
+        offsetSec: offset,
+        loopPattern: !!opts.loopPattern,
+        patternSec,
+      };
     }
     comp.connect(dest);
-    return { master, analyser: null, stops, startedAt: start };
+    return {
+      master,
+      analyser: null,
+      stops,
+      startedAt: start,
+      offsetSec: offset,
+      loopPattern: !!opts.loopPattern,
+      patternSec,
+    };
   }
 
   return {
@@ -378,7 +399,11 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       return !!graph;
     },
     samples,
-    async start(opts?: { loopPattern?: boolean; offsetSec?: number }) {
+    async start(opts?: {
+      loopPattern?: boolean;
+      offsetSec?: number;
+      delaySec?: number;
+    }) {
       ctx = ctx || new AudioContext();
       await ctx.resume();
       const session = getSession();
@@ -394,6 +419,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
         fadeSec: session.export?.fadeSec || 0,
         loopPattern: !!opts?.loopPattern,
         offsetSec: opts?.offsetSec || 0,
+        delaySec: opts?.delaySec || 0,
       });
       graph = {
         ctx,
@@ -401,6 +427,9 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
         analyser: built.analyser!,
         stops: built.stops,
         startedAt: built.startedAt,
+        offsetSec: built.offsetSec,
+        loopPattern: built.loopPattern,
+        patternSec: built.patternSec,
       };
     },
     stop() {
@@ -421,8 +450,19 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     },
     rebuild() {
       const was = !!graph;
+      const offset = this.positionSec();
       this.stop();
-      if (was) setTimeout(() => this.start(), 120);
+      if (was)
+        setTimeout(
+          () => this.start({ loopPattern: true, offsetSec: offset }),
+          120,
+        );
+    },
+    positionSec() {
+      if (!graph) return 0;
+      const raw =
+        graph.offsetSec + Math.max(0, graph.ctx.currentTime - graph.startedAt);
+      return graph.loopPattern ? raw : Math.min(raw, graph.patternSec);
     },
     async loadSample(layerId: string, file: File) {
       ctx = ctx || new AudioContext();
