@@ -156,10 +156,14 @@ function App() {
           <button className="act" disabled={exportBusy} onClick={exportWav}>
             {exportBusy ? "Rendering…" : "↓ Render WAV"}
           </button>
+          <span className="shortcut-help mono">
+            Space start · T tone · P point · S share · E export
+          </span>
         </div>
       </div>
 
       <QuickWorkflow analysis={analysis} />
+      <DeviceCheckStrip />
 
       <div className="studio-workbench">
         <aside className="studio-side">
@@ -254,6 +258,7 @@ function App() {
           </div>
           <QuickBuilder />
           <OperatorGuide />
+          <StudioChecklist analysis={analysis} />
           <GlobalPointTabs />
           <div className="studio-share-box">
             <div className="eyebrow">Protocol replicator</div>
@@ -815,6 +820,148 @@ function LayerHealth({ l, point }: { l: EntrainLayerV1; point: any }) {
   );
 }
 
+function DeviceCheckStrip() {
+  const options = [180, 220, 280, 340];
+  return (
+    <div className="device-check-strip">
+      <div>
+        <b>Device sound check</b>
+        <span>
+          Before modulation, verify a plain carrier is steady on the exact
+          speaker/headphone path you will use.
+        </span>
+      </div>
+      <div className="device-check-buttons">
+        {options.map((hz) => (
+          <button
+            className="act tiny"
+            key={hz}
+            onClick={() => loadCarrierCheck(hz)}
+          >
+            {hz} Hz carrier
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StudioChecklist({
+  analysis,
+}: {
+  analysis: ReturnType<typeof analyzeSession>;
+}) {
+  const hasCarrierLayer = session.layers.some((l) => l.type === "carrier");
+  const hasPulseLayer = session.layers.some((l) => !isNoBeat(l));
+  const hasPointArc = stageTimes().length > 2;
+  const portable = !sessionNeedsLocalFiles(session);
+  const ok = !analysis.issues.some((i) => i.level === "error");
+  const rows = [
+    {
+      label: "Carrier verified first",
+      done: hasCarrierLayer || hasPulseLayer,
+      hint: "Start from a plain carrier before adding pulse modulation.",
+    },
+    {
+      label: "Pulse intention chosen",
+      done: hasPulseLayer,
+      hint: "Countable theta pulses, focus buzz, or descent arc.",
+    },
+    {
+      label: "Timeline arc exists",
+      done: hasPointArc || session.layers.length > 0,
+      hint: "Use point tabs when the track should evolve.",
+    },
+    {
+      label: "Portable share ready",
+      done: portable,
+      hint: "Sample files must be converted or reloaded by friends.",
+    },
+    {
+      label: "Analyzer clean",
+      done: ok,
+      hint: "Fix blocking warnings before publishing or sharing widely.",
+    },
+  ];
+  return (
+    <div className="studio-checklist">
+      <div className="eyebrow">Build checklist</div>
+      {rows.map((r) => (
+        <div className={"check-row " + (r.done ? "done" : "")} key={r.label}>
+          <span>{r.done ? "✓" : "·"}</span>
+          <div>
+            <b>{r.label}</b>
+            <em>{r.hint}</em>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TimelineMap() {
+  const times = stageTimes();
+  const dur = Math.max(0.001, session.durationMin);
+  const visible = session.layers.slice(0, 8);
+  return (
+    <div className="timeline-map">
+      <div className="timeline-ruler">
+        {times.map((t) => (
+          <span
+            key={t}
+            className={Math.abs(t - activePointMin) < 1e-6 ? "on" : ""}
+            style={{ left: `${Math.min(100, Math.max(0, (t / dur) * 100))}%` }}
+          >
+            {fmtPoint(t)}
+          </span>
+        ))}
+      </div>
+      <div className="timeline-canvas">
+        <span
+          className="timeline-playhead"
+          style={{
+            left: `${Math.min(100, Math.max(0, (activePointMin / dur) * 100))}%`,
+          }}
+        />
+        {visible.map((l) => (
+          <div className="timeline-row" key={l.id}>
+            <label>{layerShortLabel(l)}</label>
+            <div className="timeline-track">
+              {times.slice(0, -1).map((t, i) => {
+                const n = times[i + 1];
+                const left = (t / dur) * 100;
+                const width = Math.max(0.6, ((n - t) / dur) * 100);
+                return (
+                  <span
+                    className="timeline-seg"
+                    title={segmentLabel(l, t, n)}
+                    key={t + "-" + n}
+                    style={{
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      background: layerColor(
+                        sampleTimelineSafe(l, "beatHz", t),
+                        l.type,
+                      ),
+                    }}
+                  >
+                    {segmentLabel(l, t, n)}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {session.layers.length > visible.length ? (
+          <div className="timeline-more small">
+            + {session.layers.length - visible.length} more layer(s)
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function OperatorGuide() {
   return (
     <details className="operator-guide" open>
@@ -897,6 +1044,7 @@ function GlobalPointTabs() {
           <input readOnly value={fmtPoint(nextPointAfter(activePointMin))} />
         </div>
       </div>
+      <TimelineMap />
       <p className="small">
         Each point is a full snapshot of the layer stack. Between adjacent
         points, carrier frequency, beat Hz, and gain interpolate linearly in the
@@ -1900,6 +2048,87 @@ function workflowPhase() {
   return "ready";
 }
 
+function loadCarrierCheck(hz: number) {
+  engine.stop();
+  status = "idle";
+  activePointMin = 0;
+  session = sanitizeSession({
+    ...defaultSession(),
+    name: `Carrier check ${hz} Hz`,
+    durationMin: 8,
+    layers: [
+      {
+        id: uid(),
+        type: "carrier",
+        carrierHz: hz,
+        wave: "sine",
+        keyframes: [
+          { tMin: 0, carrierHz: hz, gainPct: 34 },
+          { tMin: 8, carrierHz: hz, gainPct: 34 },
+        ],
+      },
+    ],
+  });
+  notice = `${hz} Hz plain carrier loaded — listen for mechanical beating before adding modulation`;
+  repaint(true);
+}
+function layerShortLabel(l: EntrainLayerV1) {
+  if (l.type === "procedural-ambience") return "ambience";
+  if (l.type === "additive") return "additive";
+  if (l.type === "karplus") return "pluck";
+  return l.type.replace("iso-", "iso ");
+}
+function segmentLabel(l: EntrainLayerV1, a: number, b: number) {
+  const c0 = sampleTimelineSafe(l, "carrierHz", a),
+    c1 = sampleTimelineSafe(l, "carrierHz", b);
+  const g0 = sampleTimelineSafe(l, "gainPct", a),
+    g1 = sampleTimelineSafe(l, "gainPct", b);
+  if (!isNoBeat(l)) {
+    const beat0 = sampleTimelineSafe(l, "beatHz", a),
+      beat1 = sampleTimelineSafe(l, "beatHz", b);
+    const beat =
+      Math.abs(beat0 - beat1) > 0.05
+        ? `${fmtNum(beat0)}→${fmtNum(beat1)}Hz`
+        : `${fmtNum(beat0)}Hz`;
+    const carrier =
+      Math.abs(c0 - c1) > 0.5
+        ? ` · ${fmtNum(c0)}→${fmtNum(c1)}c`
+        : ` · ${fmtNum(c0)}c`;
+    return beat + carrier;
+  }
+  if (!isNoCarrier(l))
+    return Math.abs(c0 - c1) > 0.5
+      ? `${fmtNum(c0)}→${fmtNum(c1)}Hz`
+      : `${fmtNum(c0)}Hz`;
+  return Math.abs(g0 - g1) > 0.5
+    ? `${fmtNum(g0)}→${fmtNum(g1)}%`
+    : `${fmtNum(g0)}%`;
+}
+function fmtNum(v: number) {
+  return Number.isFinite(v) ? String(Math.round(v * 10) / 10) : "0";
+}
+function onStudioKey(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null;
+  if (
+    target &&
+    ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)
+  )
+    return;
+  const k = e.key.toLowerCase();
+  if (e.code === "Space") {
+    e.preventDefault();
+    void toggle();
+  } else if (k === "t") {
+    addLayer();
+  } else if (k === "p") {
+    cloneCurrentPoint();
+  } else if (k === "s") {
+    copyShareUrl();
+  } else if (k === "e") {
+    void exportWav();
+  }
+}
+
 function applyStarter(kind: "carrier" | "countable" | "buzz" | "descent") {
   engine.stop();
   status = "idle";
@@ -2393,9 +2622,11 @@ export default async function mount() {
     notice = "restored local browser draft";
   }
   booting = false;
+  addEventListener("keydown", onStudioKey);
   render(<App />, document.getElementById("studio-root")!);
   scheduleLocalAutosave();
   return () => {
+    removeEventListener("keydown", onStudioKey);
     engine.stop();
     render(null, document.getElementById("studio-root")!);
   };
