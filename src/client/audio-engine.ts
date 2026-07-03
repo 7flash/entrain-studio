@@ -1,7 +1,10 @@
-import type {
-  EntrainLayerV1,
-  EntrainSessionV1,
-  Keyframe,
+import {
+  MIX,
+  sampleTimeline,
+  sortedKeyframes,
+  type EntrainLayerV1,
+  type EntrainSessionV1,
+  type Keyframe,
 } from "@/format/entrain-format";
 
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -37,24 +40,6 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
   let graph: Graph | null = null;
   const samples = new Map<string, AudioBuffer>();
 
-  function sorted(pts: Keyframe[]) {
-    return [...(pts || [])].sort((a, b) => a.tMin - b.tMin);
-  }
-  function tlVal(pts: Keyframe[], key: "beatHz" | "gainPct", tMin: number) {
-    const p = sorted(pts);
-    if (!p.length) return 0;
-    if (tMin <= p[0].tMin) return Number(p[0][key] || 0);
-    for (let i = 1; i < p.length; i++)
-      if (tMin <= p[i].tMin) {
-        const a = p[i - 1],
-          b = p[i],
-          f = (tMin - a.tMin) / Math.max(1e-9, b.tMin - a.tMin);
-        return (
-          Number(a[key] || 0) + (Number(b[key] || 0) - Number(a[key] || 0)) * f
-        );
-      }
-    return Number(p[p.length - 1][key] || 0);
-  }
   function scheduleParam(
     param: AudioParam,
     pts: Keyframe[],
@@ -65,8 +50,8 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     offsetSec = 0,
   ) {
     const offsetMin = Math.max(0, offsetSec) / 60;
-    param.setValueAtTime(map(tlVal(pts, key, offsetMin)), start);
-    for (const p of sorted(pts)) {
+    param.setValueAtTime(map(sampleTimeline(pts, key, offsetMin)), start);
+    for (const p of sortedKeyframes(pts)) {
       const rel = p.tMin * 60 - offsetSec;
       if (rel <= 0.01 || rel > durSec) continue;
       param.linearRampToValueAtTime(map(Number(p[key] || 0)), start + rel);
@@ -91,7 +76,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       layerGain.gain,
       l.keyframes,
       "gainPct",
-      (v) => (v / 100) * (0.55 / Math.sqrt(Math.max(1, count))),
+      (v) => (v / 100) * (MIX.layerNorm / Math.sqrt(Math.max(1, count))),
       start,
       durSec,
       offsetSec,
@@ -250,9 +235,9 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       offsetSec,
     );
     const mg = ctx.createGain();
-    mg.gain.value = l.type === "iso-hard" ? 0.47 : 0.4;
+    mg.gain.value = 0.5;
     const off = ctx.createConstantSource();
-    off.offset.value = l.type === "iso-hard" ? 0.5 : 0.56;
+    off.offset.value = 0.5;
     lfo.connect(mg);
     mg.connect(amp.gain);
     off.connect(amp.gain);
@@ -372,7 +357,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       start = ctx.currentTime + delay,
       dur = opts.durSec || session.durationMin * 60;
     const master = ctx.createGain();
-    const peak = 0.75;
+    const peak = MIX.masterPeak;
     const fadeIn = Math.max(0.02, Math.min(opts.fadeSec ?? 0.8, dur / 2));
     master.gain.setValueAtTime(0.0001, start);
     master.gain.linearRampToValueAtTime(peak, start + fadeIn);
@@ -431,11 +416,11 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       }
     }
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -16;
-    comp.knee.value = 18;
-    comp.ratio.value = 8;
-    comp.attack.value = 0.008;
-    comp.release.value = 0.18;
+    comp.threshold.value = MIX.limiterThresholdDb;
+    comp.knee.value = 0;
+    comp.ratio.value = MIX.limiterRatio;
+    comp.attack.value = MIX.limiterAttackSec;
+    comp.release.value = MIX.limiterReleaseSec;
     master.connect(comp);
     if (opts.live) {
       const analyser = (ctx as AudioContext).createAnalyser();
@@ -479,12 +464,14 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       ctx = ctx || new AudioContext();
       await ctx.resume();
       const session = getSession();
-      const liveSec = opts?.loopPattern
-        ? Math.max(session.durationMin * 60, 8 * 60 * 60)
-        : Math.max(
-            1,
-            session.durationMin * 60 - Math.max(0, opts?.offsetSec || 0),
-          );
+      const mode = session.loop?.mode || "hold-last";
+      const liveSec =
+        opts?.loopPattern || mode === "hold-last"
+          ? Math.max(session.durationMin * 60, 8 * 60 * 60)
+          : Math.max(
+              1,
+              session.durationMin * 60 - Math.max(0, opts?.offsetSec || 0),
+            );
       const built = build(ctx, ctx.destination, {
         live: true,
         durSec: liveSec,
@@ -559,7 +546,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       const requested = opts?.repetitions
         ? session.durationMin * 60 * opts.repetitions
         : seconds || session.durationMin * 60;
-      const durSec = Math.max(1, Math.min(requested, 180 * 60));
+      const durSec = Math.max(1, Math.min(requested, 60 * 60));
       const sr = sampleRate || session.export?.sampleRate || 44100;
       const off = new OfflineAudioContext(2, Math.floor(sr * durSec), sr);
       build(off, off.destination, {
@@ -771,12 +758,18 @@ function bowlPartials(): Array<{
   ];
 }
 
+function snapToLoopHz(freq: number, lenSec: number) {
+  const grid = 1 / Math.max(0.001, lenSec);
+  return Math.max(grid, Math.round(freq / grid) * grid);
+}
+
 function additiveLoopBuffer(
   ctx: BaseAudioContext,
   baseHz: number,
   partials: Array<{ ratio: number; gain: number; detuneCents?: number }>,
   seed: number,
-  lenSec = 4,
+  lenSec = 16,
+  opts: { rain?: boolean } = {},
 ) {
   const len = Math.floor(ctx.sampleRate * lenSec);
   const buf = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -784,30 +777,67 @@ function additiveLoopBuffer(
     1,
     partials.reduce((s, p) => s + Math.max(0, p.gain || 0), 0),
   );
-  const rnd = lcg(seed || 1);
+  const slowHz = snapToLoopHz(0.07, lenSec);
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
     const phaseOffset = ch ? Math.PI * 0.37 : 0;
+    const rnd = lcg((seed || 1) + ch * 1013904223);
+    let b0 = 0,
+      b1 = 0,
+      b2 = 0,
+      b3 = 0,
+      b4 = 0,
+      b5 = 0,
+      b6 = 0;
     for (let i = 0; i < len; i++) {
       const t = i / ctx.sampleRate;
-      const slow = Math.sin(2 * Math.PI * 0.07 * t + phaseOffset) * 0.5 + 0.5;
+      const slow = Math.sin(2 * Math.PI * slowHz * t + phaseOffset) * 0.5 + 0.5;
       let v = 0;
       for (const part of partials) {
         const cents = Math.pow(2, (part.detuneCents || 0) / 1200);
+        const f = snapToLoopHz(
+          baseHz * Math.max(0.05, part.ratio || 1) * cents,
+          lenSec,
+        );
         v +=
-          Math.sin(
-            2 * Math.PI * baseHz * part.ratio * cents * t + phaseOffset,
-          ) *
-          (part.gain / totalGain);
+          Math.sin(2 * Math.PI * f * t + phaseOffset) * (part.gain / totalGain);
       }
-      d[i] = v * (0.72 + 0.28 * slow) * 0.18 + (rnd() * 2 - 1) * 0.012;
+      let mask = 0;
+      if (opts.rain) {
+        const w = rnd() * 2 - 1;
+        b0 = 0.99886 * b0 + w * 0.0555179;
+        b1 = 0.99332 * b1 + w * 0.0750759;
+        b2 = 0.969 * b2 + w * 0.153852;
+        b3 = 0.8665 * b3 + w * 0.3104856;
+        b4 = 0.55 * b4 + w * 0.5329522;
+        b5 = -0.7616 * b5 - w * 0.016898;
+        mask = (b0 + b1 + b2 + b3 + b4 + b5 + b6 + w * 0.5362) * 0.11;
+        b6 = w * 0.115926;
+        const drops = rnd() > 0.997 ? (rnd() * 2 - 1) * 0.25 : 0;
+        mask = mask * 0.5 + drops;
+      }
+      d[i] = v * (0.72 + 0.28 * slow) * 0.16 + mask * 0.35;
+    }
+    // Equal-power seam polish: the snapped harmonic grid should already be phase-continuous;
+    // this tiny wrap crossfade protects against numerical/noise discontinuity.
+    const fade = Math.min(
+      Math.floor(ctx.sampleRate * 0.04),
+      Math.floor(len / 8),
+    );
+    for (let i = 0; i < fade; i++) {
+      const a = i / fade;
+      const head = d[i],
+        tail = d[len - fade + i];
+      const mixed = tail * (1 - a) + head * a;
+      d[i] = mixed;
+      d[len - fade + i] = mixed;
     }
   }
   return buf;
 }
 
 function noise(ctx: BaseAudioContext, color: string, seed = 1001) {
-  const len = Math.floor(ctx.sampleRate * 2),
+  const len = Math.floor(ctx.sampleRate * 10),
     buf = ctx.createBuffer(2, len, ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
     const rnd = lcg(seed + ch * 1013904223);
@@ -887,16 +917,22 @@ function proceduralAmbience(
   recipe: string,
   seed: number,
 ) {
-  const len = Math.floor(ctx.sampleRate * 4),
-    buf = ctx.createBuffer(2, len, ctx.sampleRate);
   if (recipe === "bowl-drone")
     return finishBufferSource(
       ctx,
-      additiveLoopBuffer(ctx, 136.1, bowlPartials(), seed, 4),
+      additiveLoopBuffer(ctx, 136.1, bowlPartials(), seed, 16),
     );
-  const rnd = lcg(seed);
+  if (recipe === "heavy-rain-bowls")
+    return finishBufferSource(
+      ctx,
+      additiveLoopBuffer(ctx, 136.1, bowlPartials(), seed, 16, { rain: true }),
+    );
+  const lenSec = 10;
+  const len = Math.floor(ctx.sampleRate * lenSec),
+    buf = ctx.createBuffer(2, len, ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
+    const rnd = lcg(seed + ch * 1013904223);
     let last = 0,
       b0 = 0,
       b1 = 0,
@@ -911,7 +947,10 @@ function proceduralAmbience(
       const w = rnd() * 2 - 1;
       if (recipe === "brown-room") {
         last = (last + 0.018 * w) / 1.018;
-        d[i] = last * 2.8 + Math.sin(2 * Math.PI * 55 * t + phaseOffset) * 0.02;
+        d[i] =
+          last * 2.8 +
+          Math.sin(2 * Math.PI * snapToLoopHz(55, lenSec) * t + phaseOffset) *
+            0.02;
       } else {
         b0 = 0.99886 * b0 + w * 0.0555179;
         b1 = 0.99332 * b1 + w * 0.0750759;
@@ -925,6 +964,19 @@ function proceduralAmbience(
           recipe === "rain" && rnd() > 0.996 ? (rnd() * 2 - 1) * 0.45 : 0;
         d[i] = pink * 0.8 + drops;
       }
+    }
+    // Generic short loop polish for stochastic beds.
+    const fade = Math.min(
+      Math.floor(ctx.sampleRate * 0.08),
+      Math.floor(len / 8),
+    );
+    for (let i = 0; i < fade; i++) {
+      const a = i / fade;
+      const head = d[i],
+        tail = d[len - fade + i];
+      const mixed = tail * (1 - a) + head * a;
+      d[i] = mixed;
+      d[len - fade + i] = mixed;
     }
   }
   return finishBufferSource(ctx, buf);

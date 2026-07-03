@@ -3,7 +3,11 @@ import type {
   EntrainSessionV1,
   TemplateTier,
 } from "@/format/entrain-format";
-import { sanitizeSession, summarizeSession } from "@/format/entrain-format";
+import {
+  createLinearGlideKeyframes,
+  sanitizeSession,
+  summarizeSession,
+} from "@/format/entrain-format";
 import { analyzeSession } from "@/format/protocol-analyzer";
 import {
   compareToReference,
@@ -55,7 +59,7 @@ function lineage(
   };
 }
 
-export const BUILTIN_SOUNDTRACK_REVISION = "builtin-v17-creator-marketplace";
+export const BUILTIN_SOUNDTRACK_REVISION = "builtin-v22-engine-security-glides";
 
 export const seedTemplates: EntrainTemplateV1[] = [
   t({
@@ -479,14 +483,14 @@ export const seedTemplates: EntrainTemplateV1[] = [
       "Pro tier: long-form descent plus optional local ambience track.",
     summary: "A 60-minute 140 Hz binaural descent from alpha toward low delta.",
     description:
-      "A report-aligned long-form descent: one 140 Hz binaural carrier gliding 10 → 2.5 Hz during the first 30 minutes, then 2.5 → 1.5 Hz during the second 30 minutes, with procedural rain/bowl masking and safe fade envelopes.",
+      "A report-aligned long-form descent: one 140 Hz binaural carrier. Phase 1 uses f_b(t)=10−0.004167t seconds for 0–30 min (10 → 2.5 Hz). Phase 2 uses f_b(t)=2.5−0.000556(t−1800) seconds for 30–60 min (2.5 → 1.5 Hz). The oscillator integrates instantaneous frequency internally; the stored keyframes are the auditable linear glide definition. Masking uses a portable heavy-rain + bowl-drone procedural recipe rather than bundled recordings.",
     tags: ["binaural", "longform", "delta", "premium"],
     lineage: lineage(
       "deep-descent-60",
       "curated-reconstruction",
       "Report-aligned long-form descent with portable procedural ambience instead of bundled rain/bowl recordings.",
       [
-        "Uses procedural rain and bowl-drone recipes rather than local/copyrighted ambience recordings.",
+        "Uses a portable procedural heavy-rain-bowls recipe rather than local/copyrighted ambience recordings.",
       ],
     ),
     session: s(
@@ -499,34 +503,21 @@ export const seedTemplates: EntrainTemplateV1[] = [
           carrierHz: 140,
           wave: "sine",
           keyframes: [
-            { tMin: 0, beatHz: 10, gainPct: 20 },
-            { tMin: 30, beatHz: 2.5, gainPct: 20 },
+            ...createLinearGlideKeyframes(10, 2.5, 30, 20),
             { tMin: 60, beatHz: 1.5, gainPct: 18 },
           ],
         },
         {
-          id: "rain-mask",
+          id: "heavy-rain-bowls",
           type: "procedural-ambience",
-          ambienceRecipe: "rain",
+          ambienceRecipe: "heavy-rain-bowls",
           seed: 6060,
           pan: 0,
           panMotion: { rateHz: 0.03, depth: 0.18 },
           keyframes: [
-            { tMin: 0, gainPct: 50 },
-            { tMin: 60, gainPct: 50 },
-          ],
-        },
-        {
-          id: "bowl-drone",
-          type: "procedural-ambience",
-          ambienceRecipe: "bowl-drone",
-          seed: 6061,
-          pan: 0,
-          panMotion: { rateHz: 0.01, depth: 0.12 },
-          keyframes: [
             { tMin: 0, gainPct: 0 },
-            { tMin: 5, gainPct: 12 },
-            { tMin: 60, gainPct: 12 },
+            { tMin: 2, gainPct: 50 },
+            { tMin: 60, gainPct: 50 },
           ],
         },
       ],

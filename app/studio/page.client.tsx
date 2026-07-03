@@ -5,6 +5,11 @@ import type {
   LayerType,
 } from "@/format/entrain-format";
 import {
+  BANDS,
+  bandForHz,
+  createLinearGlideKeyframes,
+  hasBeat,
+  hasCarrier,
   defaultSession,
   sanitizeSession,
   sessionNeedsLocalFiles,
@@ -32,6 +37,8 @@ let status = "idle";
 let notice = "";
 let exportBusy = false;
 let autosaveTimer: any = null;
+let rebuildTimer: any = null;
+let pendingRebuildOffset: number | null = null;
 let booting = true;
 let lastShare: SharePayloadInfo | null = null;
 
@@ -47,25 +54,26 @@ const layerTypes: LayerType[] = [
   "additive",
   "karplus",
 ];
-const isNoBeat = (l: EntrainLayerV1) =>
-  l.type === "noise" ||
-  l.type === "carrier" ||
-  l.type === "sample" ||
-  l.type === "procedural-ambience" ||
-  l.type === "additive" ||
-  l.type === "karplus";
-const isNoCarrier = (l: EntrainLayerV1) =>
-  l.type === "noise" || l.type === "sample" || l.type === "procedural-ambience";
+const isNoBeat = (l: EntrainLayerV1) => !hasBeat(l.type);
+const isNoCarrier = (l: EntrainLayerV1) => !hasCarrier(l.type);
 const uid = () =>
   crypto.randomUUID?.() || Math.random().toString(36).slice(2, 9);
 
-const bandTiles = [
-  { id: "delta", name: "Delta", range: "0.5–4 Hz", hz: 2.5 },
-  { id: "theta", name: "Theta", range: "4–8 Hz", hz: 6 },
-  { id: "alpha", name: "Alpha", range: "8–12 Hz", hz: 10 },
-  { id: "beta", name: "Beta", range: "13–30 Hz", hz: 18 },
-  { id: "gamma", name: "Gamma", range: "30–45 Hz", hz: 40 },
-];
+const bandTiles = BANDS.map((b) => ({
+  id: b.id,
+  name: b.label,
+  range: `${b.minHz}–${b.maxHz} Hz`,
+  hz:
+    b.id === "delta"
+      ? 2.5
+      : b.id === "theta"
+        ? 6
+        : b.id === "alpha"
+          ? 10
+          : b.id === "beta"
+            ? 18
+            : 40,
+}));
 
 function App() {
   const analysis = analyzeSession(session);
@@ -239,6 +247,16 @@ function App() {
               <option value="repeat">repeat pattern</option>
               <option value="crossfade-repeat">crossfade repeat</option>
             </select>
+          </div>
+          <div className="studio-share-box">
+            <div className="eyebrow">Protocol replicator</div>
+            <p className="small">
+              Create an auditable linear-glide binaural layer from carrier,
+              start/end beat, duration, and gain.
+            </p>
+            <button className="act" onClick={addProtocolGlide}>
+              + Linear glide layer
+            </button>
           </div>
           <AnalysisCard analysis={analysis} />
           <div className="studio-share-box">
@@ -439,9 +457,7 @@ function LayerCard({
             max="100"
             value={String(l.keyframes[0]?.gainPct || 0)}
             onInput={(e: any) => {
-              l.keyframes.forEach(
-                (k) => (k.gainPct = Number(e.currentTarget.value)),
-              );
+              scaleLayerGain(l, Number(e.currentTarget.value));
               repaint(true);
             }}
           />
@@ -476,9 +492,8 @@ function LayerCard({
               max="45"
               value={String(l.keyframes[0]?.beatHz || 10)}
               onInput={(e: any) => {
-                l.keyframes.forEach(
-                  (k) => (k.beatHz = Number(e.currentTarget.value)),
-                );
+                if (l.keyframes[0])
+                  l.keyframes[0].beatHz = Number(e.currentTarget.value);
                 repaint(true);
               }}
             />
@@ -649,6 +664,7 @@ function ProceduralControls({ l }: { l: EntrainLayerV1 }) {
           <option value="pink-rain">pink rain</option>
           <option value="brown-room">brown room</option>
           <option value="bowl-drone">bowl drone</option>
+          <option value="heavy-rain-bowls">heavy rain + bowls</option>
         </select>
       </div>
       <div className="field">
@@ -1040,11 +1056,7 @@ function primaryBeatLayer() {
   );
 }
 function bandName(hz: number) {
-  if (hz < 4) return "delta";
-  if (hz < 8) return "theta";
-  if (hz < 13) return "alpha";
-  if (hz < 30) return "beta";
-  return "gamma";
+  return bandForHz(hz);
 }
 function layerColor(hz: number, type: LayerType) {
   if (type === "noise" || type === "sample" || type === "procedural-ambience")
@@ -1102,6 +1114,38 @@ function addBandLayer(hz: number) {
   });
   repaint(true);
 }
+
+function addProtocolGlide() {
+  const carrier = Number(prompt("Carrier Hz", "140") || 140);
+  const startBeat = Number(prompt("Start beat Hz", "10") || 10);
+  const endBeat = Number(prompt("End beat Hz", "2.5") || 2.5);
+  const durationMin = Math.max(
+    1,
+    Number(
+      prompt("Glide duration minutes", String(session.durationMin)) ||
+        session.durationMin,
+    ),
+  );
+  const gainPct = Math.max(
+    0,
+    Math.min(100, Number(prompt("Gain %", "20") || 20)),
+  );
+  session.durationMin = Math.max(session.durationMin, durationMin);
+  session.layers.push({
+    id: uid(),
+    type: "binaural",
+    carrierHz: carrier,
+    wave: "sine",
+    keyframes: createLinearGlideKeyframes(
+      startBeat,
+      endBeat,
+      durationMin,
+      gainPct,
+    ),
+  });
+  notice = `added ${carrier} Hz glide ${startBeat}→${endBeat} Hz over ${durationMin} min`;
+  repaint(true);
+}
 function syncLiveReadouts() {
   const elapsed = engine.positionSec();
   const t = document.getElementById("studio-timer");
@@ -1138,7 +1182,13 @@ function describeLayer(l: EntrainLayerV1) {
   if (l.type === "carrier") return `${l.carrierHz || 220} Hz carrier`;
   const first = l.keyframes[0]?.beatHz || 10;
   const last = l.keyframes[l.keyframes.length - 1]?.beatHz || first;
-  return `${first}${first !== last ? `→${last}` : ""} Hz · carrier ${l.carrierHz || 220} Hz`;
+  const carrier = l.carrierHz || 220;
+  if (l.type === "binaural")
+    return `${first}${first !== last ? `→${last}` : ""} Hz · L/R ${fmtHz(carrier - first / 2)} / ${fmtHz(carrier + first / 2)} Hz`;
+  return `${first}${first !== last ? `→${last}` : ""} Hz · carrier ${carrier} Hz`;
+}
+function fmtHz(v: number) {
+  return Math.round(v * 100) / 100;
 }
 function fmtPan(p: number) {
   return p === 0
@@ -1147,6 +1197,24 @@ function fmtPan(p: number) {
       ? `${Math.round(Math.abs(p) * 100)}L`
       : `${Math.round(p * 100)}R`;
 }
+
+function scaleLayerGain(l: EntrainLayerV1, next: number) {
+  const current = l.keyframes[0]?.gainPct ?? 0;
+  if (current <= 0) {
+    l.keyframes.forEach((k) => {
+      k.gainPct = next;
+    });
+    return;
+  }
+  const ratio = next / current;
+  l.keyframes.forEach((k) => {
+    k.gainPct = Math.max(
+      0,
+      Math.min(100, Math.round((k.gainPct || 0) * ratio * 100) / 100),
+    );
+  });
+}
+
 function normalizeTimelines() {
   session.layers.forEach((l) => {
     l.keyframes.forEach((k) => {
@@ -1595,10 +1663,32 @@ async function saveServer() {
   repaint();
 }
 function repaint(rebuild = false) {
-  if (rebuild && engine.running) engine.rebuild();
+  if (rebuild && engine.running) scheduleEngineRebuild();
   scheduleLocalAutosave();
   render(<App />, document.getElementById("studio-root")!);
 }
+function scheduleEngineRebuild() {
+  if (pendingRebuildOffset == null) pendingRebuildOffset = engine.positionSec();
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => {
+    const offset = pendingRebuildOffset ?? engine.positionSec();
+    pendingRebuildOffset = null;
+    if (engine.running) {
+      engine.stop();
+      setTimeout(
+        () =>
+          engine
+            .start({
+              loopPattern: (session.loop?.mode || "hold-last") !== "hold-last",
+              offsetSec: offset,
+            })
+            .catch(() => {}),
+        80,
+      );
+    }
+  }, 160);
+}
+
 function scheduleLocalAutosave() {
   if (booting) return;
   clearTimeout(autosaveTimer);

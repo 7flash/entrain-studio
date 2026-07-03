@@ -357,25 +357,53 @@ async function buyThenUnlock() {
 
 async function buyAccess(access: any) {
   if (!wallet.authenticated) wallet = await connectAndVerify();
-  const price = Number(access.priceLamports || 0);
-  const recipient = String(access.payoutWallet || "");
-  if (!price || !recipient) throw new Error("Missing price or payout wallet.");
+  const purchase = await fetch(
+    `/api/market/purchase?slug=${encodeURIComponent(slug)}`,
+  ).then((r) => r.json());
+  if (!purchase.ok)
+    throw new Error(purchase.error || "could not create purchase intent");
+  const intent = purchase.purchase?.intent;
+  const price = Number(
+    intent?.expectedLamports ||
+      purchase.purchase?.priceLamports ||
+      access.priceLamports ||
+      0,
+  );
+  const basePrice = Number(
+    intent?.priceLamports ||
+      purchase.purchase?.priceLamports ||
+      access.priceLamports ||
+      0,
+  );
+  const recipient = String(
+    intent?.payoutWallet ||
+      purchase.purchase?.payoutWallet ||
+      access.payoutWallet ||
+      "",
+  );
+  if (!price || !recipient || !intent?.intentId)
+    throw new Error("Missing purchase intent. Start again.");
   const sol = price / 1_000_000_000;
+  const baseSol = basePrice / 1_000_000_000;
   if (
     !confirm(
-      `Buy access for ${sol} SOL? Payment is sent directly to the creator wallet.`,
+      `Buy access for ${baseSol} SOL? Phantom will send ${sol} SOL including a tiny unique verification dust amount.`,
     )
   )
     throw new Error("Purchase cancelled");
   message = "open Phantom to send payment…";
   paint();
-  const sent = await paySol(recipient, price);
+  const sent = await paySol(recipient, price, intent.memo);
   message = "confirming on-chain payment…";
   paint();
   const confirmed = await fetch("/api/market/purchase", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ slug, txSignature: sent.signature }),
+    body: JSON.stringify({
+      slug,
+      txSignature: sent.signature,
+      intentId: intent.intentId,
+    }),
   }).then((r) => r.json());
   if (!confirmed.ok)
     throw new Error(confirmed.error || "payment confirmation failed");

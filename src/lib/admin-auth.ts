@@ -16,11 +16,7 @@ export function isAdminRequest(
     }
     return false;
   }
-  const supplied =
-    req.headers.get("x-admin-token") ||
-    new URL(req.url).searchParams.get("adminToken") ||
-    body?.adminToken ||
-    "";
+  const supplied = req.headers.get("x-admin-token") || body?.adminToken || "";
   return constantTimeEqual(String(supplied), String(ADMIN_TOKEN));
 }
 

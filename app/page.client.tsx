@@ -31,7 +31,7 @@ function TokenMarketCard() {
         <h3>{name} access token</h3>
         <p className="muted">
           Prepared soundtracks unlock from the verified wallet balance. Market
-          data refreshes every 5 seconds.
+          data refreshes while this tab is visible.
         </p>
       </div>
       <div className="token-stats">
@@ -135,9 +135,16 @@ function pct(v: number | null | undefined) {
 export default function mount() {
   paint();
   loadMarket();
-  timer = setInterval(loadMarket, 5000);
+  timer = setInterval(() => {
+    if (document.visibilityState === "visible") loadMarket();
+  }, 15000);
+  const onVisibility = () => {
+    if (document.visibilityState === "visible") loadMarket();
+  };
+  document.addEventListener("visibilitychange", onVisibility);
   return () => {
     if (timer) clearInterval(timer);
+    document.removeEventListener("visibilitychange", onVisibility);
     const root = document.getElementById("token-market-root");
     if (root) render(null, root);
   };

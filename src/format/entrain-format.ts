@@ -12,7 +12,7 @@ export type LayerType =
 export type Wave = "sine" | "triangle" | "sawtooth";
 export type NoiseColor = "white" | "pink" | "brown";
 export type ProceduralAmbienceRecipe =
-  "rain" | "pink-rain" | "brown-room" | "bowl-drone";
+  "rain" | "pink-rain" | "brown-room" | "bowl-drone" | "heavy-rain-bowls";
 export type AdditivePartial = {
   ratio: number;
   gain: number;
@@ -33,6 +33,136 @@ export type KarplusConfig = {
 };
 export type TemplateTier = "free" | "holder" | "pro" | "collector";
 export type SessionLoopMode = "repeat" | "hold-last" | "crossfade-repeat";
+
+export const BEAT_LAYER_TYPES: LayerType[] = [
+  "binaural",
+  "monaural",
+  "iso-smooth",
+  "iso-hard",
+];
+export const CARRIER_LAYER_TYPES: LayerType[] = [
+  "binaural",
+  "monaural",
+  "iso-smooth",
+  "iso-hard",
+  "carrier",
+  "additive",
+  "karplus",
+];
+export const TIMBRE_BED_TYPES: LayerType[] = [
+  "noise",
+  "sample",
+  "procedural-ambience",
+  "additive",
+  "karplus",
+];
+
+export const MIX = {
+  layerNorm: 0.55,
+  masterPeak: 0.75,
+  limiterThresholdDb: -1.5,
+  limiterRatio: 20,
+  limiterAttackSec: 0.003,
+  limiterReleaseSec: 0.05,
+} as const;
+
+export const BANDS = [
+  {
+    id: "delta",
+    label: "Delta",
+    minHz: 0.5,
+    maxHz: 4,
+    cssVar: "--delta",
+    fallback: "#6b7cf0",
+  },
+  {
+    id: "theta",
+    label: "Theta",
+    minHz: 4,
+    maxHz: 8,
+    cssVar: "--theta",
+    fallback: "#5aa9e6",
+  },
+  {
+    id: "alpha",
+    label: "Alpha",
+    minHz: 8,
+    maxHz: 13,
+    cssVar: "--alpha",
+    fallback: "#54dccf",
+  },
+  {
+    id: "beta",
+    label: "Beta",
+    minHz: 13,
+    maxHz: 30,
+    cssVar: "--beta",
+    fallback: "#e6a94a",
+  },
+  {
+    id: "gamma",
+    label: "Gamma",
+    minHz: 30,
+    maxHz: 45,
+    cssVar: "--gamma",
+    fallback: "#e2726a",
+  },
+] as const;
+
+export function hasBeat(type: LayerType) {
+  return BEAT_LAYER_TYPES.includes(type);
+}
+export function hasCarrier(type: LayerType) {
+  return CARRIER_LAYER_TYPES.includes(type);
+}
+export function isTimbreBed(type: LayerType) {
+  return TIMBRE_BED_TYPES.includes(type);
+}
+
+export function sortedKeyframes(pts: Keyframe[] | undefined) {
+  return [...(pts || [])].sort((a, b) => a.tMin - b.tMin);
+}
+export function sampleTimeline(
+  pts: Keyframe[] | undefined,
+  key: "beatHz" | "gainPct",
+  tMin: number,
+) {
+  const p = sortedKeyframes(pts);
+  if (!p.length) return 0;
+  if (tMin <= p[0].tMin) return Number(p[0][key] || 0);
+  for (let i = 1; i < p.length; i++) {
+    if (tMin <= p[i].tMin) {
+      const a = p[i - 1],
+        b = p[i];
+      const f = (tMin - a.tMin) / Math.max(1e-9, b.tMin - a.tMin);
+      return (
+        Number(a[key] || 0) + (Number(b[key] || 0) - Number(a[key] || 0)) * f
+      );
+    }
+  }
+  return Number(p[p.length - 1][key] || 0);
+}
+
+export function createLinearGlideKeyframes(
+  startBeat: number,
+  endBeat: number,
+  durationMin: number,
+  gainPct = 20,
+  steps = 2,
+): Keyframe[] {
+  const n = Math.max(2, Math.floor(steps));
+  if (n === 2)
+    return [
+      { tMin: 0, beatHz: startBeat, gainPct },
+      { tMin: Math.max(0, durationMin), beatHz: endBeat, gainPct },
+    ];
+  const dt = Math.max(0, durationMin) / (n - 1);
+  return Array.from({ length: n }, (_, i) => ({
+    tMin: i * dt,
+    beatHz: startBeat + (endBeat - startBeat) * (i / (n - 1)),
+    gainPct,
+  }));
+}
 
 export type Keyframe = {
   tMin: number;
@@ -201,17 +331,11 @@ function sanitizeLayer(
     "pink-rain",
     "brown-room",
     "bowl-drone",
+    "heavy-rain-bowls",
   ];
   const type: LayerType = types.includes(l?.type) ? l.type : "binaural";
-  const noBeat =
-    type === "noise" ||
-    type === "carrier" ||
-    type === "sample" ||
-    type === "procedural-ambience" ||
-    type === "additive" ||
-    type === "karplus";
-  const noCarrier =
-    type === "noise" || type === "sample" || type === "procedural-ambience";
+  const noBeat = !hasBeat(type);
+  const noCarrier = !hasCarrier(type);
   const keyframesRaw = Array.isArray(l?.keyframes)
     ? l.keyframes
     : Array.isArray(l?.tl)
@@ -426,14 +550,7 @@ export function summarizeSession(input: any): SessionSummary {
   let headphonesRequired = false;
   for (const layer of s.layers) {
     if (layer.type === "binaural") headphonesRequired = true;
-    if (
-      layer.type !== "noise" &&
-      layer.type !== "carrier" &&
-      layer.type !== "sample" &&
-      layer.type !== "procedural-ambience" &&
-      layer.type !== "additive" &&
-      layer.type !== "karplus"
-    ) {
+    if (hasBeat(layer.type)) {
       beatLayerCount++;
       for (const k of layer.keyframes)
         if (typeof k.beatHz === "number") bands.add(bandForHz(k.beatHz));
@@ -460,11 +577,9 @@ export function summarizeSession(input: any): SessionSummary {
 }
 
 export function bandForHz(hz: number) {
-  if (hz < 4) return "delta";
-  if (hz < 8) return "theta";
-  if (hz < 13) return "alpha";
-  if (hz < 30) return "beta";
-  return "gamma";
+  const band =
+    BANDS.find((b) => hz >= b.minHz && hz < b.maxHz) || BANDS[BANDS.length - 1];
+  return band.id;
 }
 
 export function sessionNeedsLocalFiles(input: any) {

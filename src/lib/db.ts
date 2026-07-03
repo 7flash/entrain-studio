@@ -74,6 +74,19 @@ export const db = new Database(
       payoutWallet: z.string(),
       ...timestamps,
     }),
+    purchaseIntents: z.object({
+      intentId: z.string(),
+      publicKey: z.string(),
+      slug: z.string(),
+      payoutWallet: z.string(),
+      baseLamports: z.number(),
+      expectedLamports: z.number(),
+      memo: z.string(),
+      expiresAt: z.number(),
+      consumed: z.boolean().default(false),
+      txSignature: z.string().optional(),
+      ...timestamps,
+    }),
     soundtrackPurchases: z.object({
       publicKey: z.string(),
       slug: z.string(),
@@ -178,3 +191,39 @@ export type TemplateRow = {
   createdAt?: number;
   updatedAt?: number;
 };
+
+let lastMaintenanceSweep = 0;
+export function sweepExpiredRows(now = Date.now()) {
+  if (now - lastMaintenanceSweep < 10 * 60_000) return;
+  lastMaintenanceSweep = now;
+  try {
+    for (const row of db.walletChallenges.select().all() as any[])
+      if (Number(row.expiresAt || 0) < now - 60_000)
+        db.walletChallenges.delete().where({ nonce: row.nonce }).run();
+    for (const row of db.walletSessions.select().all() as any[])
+      if (Number(row.expiresAt || 0) < now)
+        db.walletSessions.delete().where({ sessionId: row.sessionId }).run();
+    for (const row of db.purchaseIntents.select().all() as any[])
+      if (Number(row.expiresAt || 0) < now || row.consumed)
+        db.purchaseIntents.delete().where({ intentId: row.intentId }).run();
+    for (const row of db.syncRooms.select().all() as any[])
+      if (Number(row.expiresAt || 0) < now) {
+        db.syncRooms.delete().where({ roomId: row.roomId }).run();
+        for (const p of db.syncRoomPresence
+          .select()
+          .where({ roomId: row.roomId })
+          .all() as any[])
+          db.syncRoomPresence
+            .delete()
+            .where({ roomId: row.roomId, clientId: p.clientId })
+            .run();
+      }
+    for (const row of db.playEvents.select().all() as any[])
+      if (Number(row.createdAt || 0) < now - 30 * 24 * 60 * 60_000)
+        db.playEvents.delete().where({ id: row.id }).run();
+  } catch (e) {
+    console.warn("[ENTRAIN] maintenance sweep failed", e);
+  }
+}
+
+sweepExpiredRows();

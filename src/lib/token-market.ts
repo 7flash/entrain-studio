@@ -1,4 +1,5 @@
 import {
+  SOLANA_RPC,
   TOKEN_CHAIN,
   TOKEN_DISPLAY_NAME,
   TOKEN_MINT,
@@ -54,6 +55,7 @@ export function tokenConfig() {
     displayName: TOKEN_DISPLAY_NAME,
     chainId: TOKEN_CHAIN,
     tokenAddress: TOKEN_MINT,
+    solanaRpc: SOLANA_RPC,
   };
 }
 

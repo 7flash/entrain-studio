@@ -26,6 +26,7 @@ export type TokenMeta = {
   displayName: string;
   chainId: string;
   tokenAddress: string;
+  solanaRpc?: string;
 };
 
 let tokenMetaPromise: Promise<TokenMeta> | null = null;
@@ -34,6 +35,7 @@ let tokenMetaCache: TokenMeta = {
   displayName: "$WAVES",
   chainId: "solana",
   tokenAddress: "",
+  solanaRpc: "https://api.mainnet-beta.solana.com",
 };
 
 export async function getTokenMeta(): Promise<TokenMeta> {
@@ -46,6 +48,7 @@ export async function getTokenMeta(): Promise<TokenMeta> {
           displayName: r.displayName || "$WAVES",
           chainId: r.chainId || "solana",
           tokenAddress: r.tokenAddress || "",
+          solanaRpc: r.solanaRpc || tokenMetaCache.solanaRpc,
         };
         return tokenMetaCache;
       })
@@ -146,18 +149,28 @@ function base58Encode(bytes: Uint8Array) {
     .join("");
 }
 
-export async function paySol(recipient: string, lamports: number) {
+export async function paySol(
+  recipient: string,
+  lamports: number,
+  memo?: string,
+) {
   const provider: any = window.phantom?.solana || window.solana;
   if (!provider?.isPhantom) {
     window.open("https://phantom.app/", "_blank");
     throw new Error("Phantom not installed");
   }
-  const { Connection, PublicKey, SystemProgram, Transaction } =
-    await import("@solana/web3.js");
+  const {
+    Connection,
+    PublicKey,
+    SystemProgram,
+    Transaction,
+    TransactionInstruction,
+  } = await import("@solana/web3.js");
   const conn = await provider.connect();
   const from = conn.publicKey;
+  await getTokenMeta();
   const connection = new Connection(
-    "https://api.mainnet-beta.solana.com",
+    tokenMetaCache.solanaRpc || "https://api.mainnet-beta.solana.com",
     "confirmed",
   );
   const tx = new Transaction().add(
@@ -167,6 +180,15 @@ export async function paySol(recipient: string, lamports: number) {
       lamports: Math.floor(Number(lamports || 0)),
     }),
   );
+  if (memo) {
+    tx.add(
+      new TransactionInstruction({
+        keys: [],
+        programId: new PublicKey("MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr"),
+        data: new TextEncoder().encode(memo),
+      }),
+    );
+  }
   tx.feePayer = new PublicKey(from.toString());
   const { blockhash, lastValidBlockHeight } =
     await connection.getLatestBlockhash("confirmed");

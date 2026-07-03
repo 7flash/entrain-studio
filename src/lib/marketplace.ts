@@ -28,6 +28,17 @@ export function formatSol(lamports: number) {
   return `${sol.toLocaleString(undefined, { maximumFractionDigits: 4 })} SOL`;
 }
 
+function randomId(prefix = "pi") {
+  const c: any = globalThis.crypto;
+  if (c?.randomUUID)
+    return `${prefix}_${c.randomUUID().replace(/-/g, "").slice(0, 24)}`;
+  return `${prefix}_${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`;
+}
+
+function purchaseMemo(intentId: string, slug: string) {
+  return `ENTRAIN purchase ${intentId} ${slug}`.slice(0, 180);
+}
+
 export function slugify(input: string) {
   const base =
     String(input || "soundtrack")
@@ -86,7 +97,8 @@ export function publishCommunitySoundtrack(
     const risk = claimRisk(`${title}\n${summary}\n${description}`);
     if (!analysis.publishable)
       throw new Error("Fix protocol analyzer errors before publishing.");
-    const needsReview = risk.risky || analysis.mixStatus === "hot";
+    const needsReview =
+      priceLamports > 0 || risk.risky || analysis.mixStatus === "hot";
     const published = !!body.publishNow && !needsReview;
     const slug = slugify(title);
     const kind =
@@ -179,9 +191,67 @@ export function upsertCreatorProfile(
   return db.creatorProfiles.select().where({ publicKey }).first();
 }
 
+export function createPurchaseIntent(publicKey: string, slug: string) {
+  if (!publicKey) throw new Error("Wallet required");
+  const row = db.templates
+    .select()
+    .where({ slug, isPublished: true })
+    .first() as any;
+  if (!row) throw new Error("Soundtrack not found");
+  const baseLamports = Number(row.priceLamports || 0);
+  const payoutWallet = String(
+    row.payoutWallet || row.creatorWallet || row.ownerPublicKey || "",
+  );
+  if (baseLamports <= 0 || !payoutWallet)
+    throw new Error("This soundtrack is not sold by payment.");
+  if (hasPurchase(publicKey, slug))
+    return {
+      alreadyPurchased: true,
+      slug,
+      priceLamports: 0,
+      expectedLamports: 0,
+      payoutWallet,
+      intentId: "",
+      memo: "",
+    };
+  const intentId = randomId("pi");
+  let tag = 0;
+  for (let i = 0; i < intentId.length; i++)
+    tag = (tag * 33 + intentId.charCodeAt(i)) % 9991;
+  const dustLamports = tag + 1;
+  const expectedLamports = baseLamports + dustLamports;
+  const memo = purchaseMemo(intentId, slug);
+  db.purchaseIntents.insert({
+    intentId,
+    publicKey,
+    slug,
+    payoutWallet,
+    baseLamports,
+    expectedLamports,
+    memo,
+    expiresAt: Date.now() + 15 * 60_000,
+    consumed: false,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  } as any);
+  return {
+    slug,
+    priceLamports: baseLamports,
+    expectedLamports,
+    payoutWallet,
+    intentId,
+    memo,
+  };
+}
+
 export async function verifySolPayment(
   signature: string,
-  expected: { buyer: string; recipient: string; lamports: number },
+  expected: {
+    buyer: string;
+    recipient: string;
+    lamports: number;
+    memo?: string;
+  },
 ) {
   return await rpcMeasure.measure.assert(
     { label: "Verify SOL payment", budget: 1500, timeout: 9000 },
@@ -217,12 +287,25 @@ export async function verifySolPayment(
           ix?.parsed?.type === "transfer" &&
           ix.parsed.info?.source === expected.buyer &&
           ix.parsed.info?.destination === expected.recipient &&
-          Number(ix.parsed.info?.lamports || 0) >= expected.lamports,
+          Number(ix.parsed.info?.lamports || 0) === expected.lamports,
       );
       if (!ok)
         throw new Error(
-          "Payment transaction does not match required buyer, recipient, and amount.",
+          "Payment transaction does not match required buyer, recipient, and exact intent amount.",
         );
+      if (expected.memo) {
+        const memo = expected.memo;
+        const memoOk = instructions.some(
+          (ix: any) =>
+            String(ix?.programId || ix?.program || "").includes("Memo") ||
+            String(ix?.parsed || ix?.data || "").includes(memo),
+        );
+        const raw = JSON.stringify(instructions);
+        if (!memoOk && !raw.includes(memo))
+          throw new Error(
+            "Payment transaction is missing the purchase intent memo.",
+          );
+      }
       return tx;
     },
   );
@@ -232,6 +315,7 @@ export async function confirmPurchase(
   publicKey: string,
   slug: string,
   txSignature: string,
+  intentId?: string,
 ) {
   const row = db.templates
     .select()
@@ -245,11 +329,41 @@ export async function confirmPurchase(
   if (priceLamports <= 0 || !payoutWallet)
     throw new Error("This soundtrack is not sold by payment.");
   if (hasPurchase(publicKey, slug)) return { alreadyPurchased: true };
+  const reused = db.soundtrackPurchases
+    .select()
+    .where({ txSignature, status: "confirmed" })
+    .first() as any;
+  if (reused)
+    throw new Error(
+      "This transaction signature has already been used for a purchase.",
+    );
+  if (!intentId)
+    throw new Error("Purchase intent required. Start the purchase again.");
+  const intent = db.purchaseIntents
+    .select()
+    .where({ intentId, publicKey, slug, consumed: false })
+    .first() as any;
+  if (!intent)
+    throw new Error(
+      "Purchase intent not found or already consumed. Start the purchase again.",
+    );
+  if (Date.now() > Number(intent.expiresAt || 0))
+    throw new Error("Purchase intent expired. Start the purchase again.");
+  if (
+    String(intent.payoutWallet) !== payoutWallet ||
+    Number(intent.baseLamports) !== priceLamports
+  )
+    throw new Error("Purchase intent no longer matches this soundtrack.");
   await verifySolPayment(txSignature, {
     buyer: publicKey,
     recipient: payoutWallet,
-    lamports: priceLamports,
+    lamports: Number(intent.expectedLamports),
+    memo: String(intent.memo || ""),
   });
+  db.purchaseIntents
+    .update({ consumed: true, txSignature, updatedAt: Date.now() })
+    .where({ intentId })
+    .run();
   db.soundtrackPurchases.insert({
     publicKey,
     slug,
@@ -260,10 +374,14 @@ export async function confirmPurchase(
     txSignature,
     status: "confirmed",
     createdAt: Date.now(),
+    updatedAt: Date.now(),
   });
   try {
     db.templates
-      .update({ purchaseCount: Number(row.purchaseCount || 0) + 1 })
+      .update({
+        purchaseCount: Number(row.purchaseCount || 0) + 1,
+        updatedAt: Date.now(),
+      })
       .where({ slug })
       .run();
   } catch {}

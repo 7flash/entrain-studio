@@ -92,6 +92,21 @@ export function decideSoundtrackAccess(
         priceCurrency: "SOL",
         payoutWallet,
       };
+    const maxAgeMs = minTokens >= 10 ? 5 * 60_000 : 60 * 60_000;
+    if (!auth.lastRefreshedAt || Date.now() - auth.lastRefreshedAt > maxAgeMs)
+      return {
+        ok: false,
+        code: "insufficient_balance",
+        message: `Refresh Phantom balance to ${verb(action)} this ${tokenAmountLabel(minTokens)} tier soundtrack.`,
+        minTokens,
+        balance,
+        requiresWallet: false,
+        staleBalance: true,
+        balanceRefreshedAt: auth.lastRefreshedAt,
+        priceLamports,
+        priceCurrency: "SOL",
+        payoutWallet,
+      };
     if (balance < minTokens)
       return {
         ok: false,

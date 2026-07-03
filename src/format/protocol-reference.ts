@@ -1,4 +1,5 @@
 import {
+  hasBeat,
   sanitizeSession,
   type EntrainSessionV1,
   type EntrainLayerV1,
@@ -29,7 +30,8 @@ export type ReferenceBedLayer = {
   label: string;
   type: "noise" | "procedural-ambience" | "sample";
   noiseColor?: "white" | "pink" | "brown";
-  ambienceRecipe?: "rain" | "pink-rain" | "brown-room" | "bowl-drone";
+  ambienceRecipe?:
+    "rain" | "pink-rain" | "brown-room" | "bowl-drone" | "heavy-rain-bowls";
   gainPct?: number;
 };
 
@@ -290,7 +292,7 @@ export const protocolReferences: Record<string, ProtocolReference> = {
     accuracy: "curated-reconstruction",
     notes: [
       "One 140 Hz carrier glides 10→2.5 Hz over minutes 0–30 and 2.5→1.5 Hz over minutes 30–60.",
-      "Portable procedural rain/bowl ambience substitutes for local or copyrighted ambience recordings.",
+      "Portable procedural heavy-rain-bowls ambience substitutes for local or copyrighted ambience recordings.",
     ],
     beatLayers: [
       {
@@ -306,14 +308,9 @@ export const protocolReferences: Record<string, ProtocolReference> = {
     ],
     beds: [
       {
-        label: "Rain mask",
+        label: "Heavy rain + bowls mask",
         type: "procedural-ambience",
-        ambienceRecipe: "rain",
-      },
-      {
-        label: "Bowl drone",
-        type: "procedural-ambience",
-        ambienceRecipe: "bowl-drone",
+        ambienceRecipe: "heavy-rain-bowls",
       },
     ],
   },
@@ -407,9 +404,7 @@ export function compareToReference(
 }
 
 function isBeatLayer(layer: EntrainLayerV1) {
-  return ["binaural", "monaural", "iso-smooth", "iso-hard"].includes(
-    layer.type,
-  );
+  return hasBeat(layer.type);
 }
 
 function findBeatLayer(

@@ -1,6 +1,8 @@
 import {
   sanitizeSession,
   bandForHz,
+  hasBeat,
+  MIX,
   type EntrainSessionV1,
   type EntrainLayerV1,
 } from "./entrain-format";
@@ -29,14 +31,6 @@ export type ProtocolAnalysis = {
   issues: ProtocolIssue[];
 };
 
-const NO_BEAT = new Set([
-  "noise",
-  "carrier",
-  "sample",
-  "procedural-ambience",
-  "additive",
-  "karplus",
-]);
 const db = (x: number) => (x <= 0 ? -Infinity : 20 * Math.log10(x));
 const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
 
@@ -44,7 +38,7 @@ export function analyzeSession(input: any): ProtocolAnalysis {
   const s = sanitizeSession(input);
   const issues: ProtocolIssue[] = [];
   const audible = audibleLayers(s);
-  const norm = 0.55 / Math.sqrt(Math.max(1, audible.length));
+  const norm = MIX.layerNorm / Math.sqrt(Math.max(1, audible.length));
   let headphonesRequired = false;
   let binauralLayerCount = 0;
   let beatLayerCount = 0;
@@ -99,7 +93,7 @@ export function analyzeSession(input: any): ProtocolAnalysis {
         layer,
       );
 
-    if (!NO_BEAT.has(layer.type)) {
+    if (hasBeat(layer.type)) {
       beatLayerCount++;
       const layerMaxBeat = max(
         layer.keyframes.map((k) => Number(k.beatHz || 0)),
@@ -139,8 +133,8 @@ export function analyzeSession(input: any): ProtocolAnalysis {
     }
   }
 
-  const estimatedPeak = peakSum * 0.75;
-  const estimatedRms = Math.sqrt(rmsSumSq) * 0.75;
+  const estimatedPeak = peakSum * MIX.masterPeak;
+  const estimatedRms = Math.sqrt(rmsSumSq) * MIX.masterPeak;
   const estimatedPeakDb = db(estimatedPeak);
   const estimatedRmsDb = db(estimatedRms);
   if (estimatedPeak > 1)
@@ -223,9 +217,6 @@ const RISKY_CLAIMS = [
   /\b(?:enlightenment|psychic|telepathy|telepathic|remote\s+viewing)\b/i,
   /\bmedical\s+treatment\b/i,
 ];
-const DISCLAIMER_WINDOW =
-  /(?:not|isn['’]?t|doesn['’]?t|won['’]?t|no|never|without|avoid|skip|consult|disclaimer|not\s+a\s+medical)/i;
-
 export function claimRisk(text: string, opts: { reviewed?: boolean } = {}) {
   if (opts.reviewed)
     return { risky: false, reviewed: true, hits: [] as string[] };
@@ -239,17 +230,7 @@ export function claimRisk(text: string, opts: { reviewed?: boolean } = {}) {
           rx.flags.includes("g") ? rx.flags : rx.flags + "g",
         ),
       ) || [];
-    for (const match of matches) {
-      const idx = source.toLowerCase().indexOf(match.toLowerCase());
-      const context = source.slice(
-        Math.max(0, idx - 80),
-        Math.min(source.length, idx + match.length + 80),
-      );
-      if (DISCLAIMER_WINDOW.test(context) && !/\bguarantee[sd]?\b/i.test(match))
-        continue;
-      hits.push(rx.source.replace(/\\b|\\s\+/g, " "));
-      break;
-    }
+    if (matches.length) hits.push(rx.source.replace(/\b|\s\+/g, " "));
   }
   return { risky: hits.length > 0, reviewed: false, hits };
 }
