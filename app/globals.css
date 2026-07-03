@@ -202,3 +202,19 @@ body{font-family:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,"Segoe UI
 .timeline-seg{position:absolute;top:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#061614;font:600 9.5px/1 'IBM Plex Mono',ui-monospace,monospace;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.82;padding:0 5px}
 .timeline-more{padding-left:82px;margin-top:2px}
 @media(max-width:900px){.studio-command-panel{position:static}.device-check-strip{align-items:flex-start;flex-direction:column}.device-check-buttons{justify-content:flex-start}.timeline-row{grid-template-columns:58px 1fr}.timeline-seg{font-size:8.5px}.shortcut-help{flex-basis:100%}}
+
+/* v0.27: Studio coaching, calibration, and interpolation UX */
+.operator-coach{
+  display:grid;
+  grid-template-columns:1fr auto;
+  gap:12px;
+  align-items:center;
+  border:1px solid var(--line2);
+  border-radius:16px;
+  background:linear-gradient(180deg,rgba(24,48,71,.9),rgba(13,20,32,.95));
+  padding:14px;
+  margin:0 0 18px;
+  box-shadow:inset 0 1px 0 #ffffff0d,0 22px 60px -48px #000;
+}
+.coach-main{display:grid;grid-template-columns:42px 1fr;gap:12px;align-items:center}.coach-main h3{margin:0 0 3px;font-family:'Newsreader',Georgia,serif;font-size:22px;font-weight:400}.coach-main p{margin:0}.coach-orb{width:42px;height:42px;border-radius:50%;background:radial-gradient(circle at 38% 34%,var(--trace-2),var(--trace) 36%,#163b40 68%,transparent 72%);box-shadow:0 0 26px rgba(84,220,207,.28)}.coach-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}.coach-micro{grid-column:1/-1;border-top:1px solid rgba(84,220,207,.16);padding-top:9px;color:var(--muted);font-size:11.5px}.operator-coach.closed .coach-main p,.operator-coach.closed .coach-micro{display:none}.device-calibration em{display:block;color:var(--trace);font-style:normal;font-size:11px;margin-top:5px}.intention-selector{border:1px solid var(--line);background:#0b111c;border-radius:14px;padding:12px;margin:14px 0}.intent-card{display:block;width:100%;text-align:left;border:1px solid var(--line);border-radius:11px;background:#080d15;color:var(--text);padding:10px;margin-top:8px;cursor:pointer;transition:.15s}.intent-card:hover{border-color:var(--trace-dim);background:#111a28;transform:translateY(-1px)}.intent-card b{display:block;font-size:13px}.intent-card span{display:block;color:var(--muted);font-size:12px;line-height:1.3;margin-top:3px}.point-inspector{border:1px solid var(--line);border-radius:12px;background:#0b111c;padding:11px;margin:10px 0 12px}.point-inspector-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:8px}.point-inspector-head b{color:var(--text);font-size:13px}.point-inspector-head span{color:var(--muted);font-size:11px}.point-values{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}.point-value{border:1px solid var(--line);border-radius:10px;background:#080d15;padding:8px}.point-value.on{border-color:var(--trace-dim);box-shadow:0 0 18px rgba(84,220,207,.08)}.point-value span,.point-value em{display:block;color:var(--muted);font-style:normal;font-size:11px;line-height:1.3}.point-value b{display:block;color:var(--text);font-size:13px;margin:3px 0}.act.ghost{background:transparent}
+@media(max-width:900px){.operator-coach{grid-template-columns:1fr}.coach-actions{justify-content:flex-start}.point-values{grid-template-columns:1fr}.coach-main{grid-template-columns:34px 1fr}.coach-orb{width:34px;height:34px}}

@@ -42,6 +42,8 @@ let pendingRebuildOffset: number | null = null;
 let booting = true;
 let lastShare: SharePayloadInfo | null = null;
 let activePointMin = 0;
+let verifiedCarrierHz: number | null = null;
+let coachOpen = true;
 
 const layerTypes: LayerType[] = [
   "binaural",
@@ -163,6 +165,7 @@ function App() {
       </div>
 
       <QuickWorkflow analysis={analysis} />
+      <OperatorCoach analysis={analysis} />
       <DeviceCheckStrip />
 
       <div className="studio-workbench">
@@ -257,6 +260,7 @@ function App() {
             </select>
           </div>
           <QuickBuilder />
+          <IntentionSelector />
           <OperatorGuide />
           <StudioChecklist analysis={analysis} />
           <GlobalPointTabs />
@@ -820,27 +824,175 @@ function LayerHealth({ l, point }: { l: EntrainLayerV1; point: any }) {
   );
 }
 
+function OperatorCoach({
+  analysis,
+}: {
+  analysis: ReturnType<typeof analyzeSession>;
+}) {
+  const plan = coachPlan(analysis);
+  return (
+    <div className={"operator-coach " + (coachOpen ? "open" : "closed")}>
+      <div className="coach-main">
+        <div className="coach-orb" />
+        <div>
+          <div className="eyebrow">Operator coach</div>
+          <h3>{plan.title}</h3>
+          <p className="small">{plan.body}</p>
+        </div>
+      </div>
+      <div className="coach-actions">
+        {plan.actions.map((a) => (
+          <button
+            className={"act " + (a.primary ? "primary" : "")}
+            key={a.label}
+            onClick={a.fn}
+          >
+            {a.label}
+          </button>
+        ))}
+        <button
+          className="act ghost"
+          onClick={() => {
+            coachOpen = !coachOpen;
+            repaint();
+          }}
+        >
+          {coachOpen ? "Hide" : "Show"}
+        </button>
+      </div>
+      {coachOpen ? <div className="coach-micro mono">{plan.micro}</div> : null}
+    </div>
+  );
+}
+
+function coachPlan(analysis: ReturnType<typeof analyzeSession>) {
+  const pulse = session.layers.find((l) => !isNoBeat(l));
+  const carrier = session.layers.find((l) => l.type === "carrier");
+  const portable = !sessionNeedsLocalFiles(session);
+  if (!session.layers.length)
+    return {
+      title: "Start from one steady tone.",
+      body: "Build the track like an operator: verify the playback device first, then add pulse modulation, then create a timeline arc.",
+      micro:
+        "No wallet, no catalogue, no server required — Studio is local-first.",
+      actions: [
+        {
+          label: "Carrier check",
+          primary: true,
+          fn: () => applyStarter("carrier"),
+        },
+        { label: "Countable pulses", fn: () => applyStarter("countable") },
+        { label: "Descent arc", fn: () => applyStarter("descent") },
+      ],
+    };
+  if (carrier && !pulse)
+    return {
+      title: "Verify the carrier before modulation.",
+      body: "Listen for unwanted beating or rattling. If it is steady, mark it verified and then switch into isochronic trap.",
+      micro: `Current carrier: ${activeCarrierHz() || 0} Hz · verified: ${verifiedCarrierHz ? verifiedCarrierHz + " Hz" : "not yet"}`,
+      actions: [
+        {
+          label: "Mark carrier steady",
+          primary: true,
+          fn: markCurrentCarrierSteady,
+        },
+        { label: "Convert to iso trap", fn: convertFirstCarrierToTrap },
+        { label: "Try 280 Hz", fn: () => loadCarrierCheck(280) },
+      ],
+    };
+  if (pulse && stageTimes().length <= 2)
+    return {
+      title: "Choose the pulse intention.",
+      body: "For countable focus keep the beat around 4–8 Hz. For a fused focus buzz use roughly 12–18 Hz. For a descent, clone timeline points and step the beat downward.",
+      micro: `Active pulse: ${fmtNum(sampleTimelineSafe(pulse, "beatHz", activePointMin))} Hz · ${pulse.type}`,
+      actions: [
+        {
+          label: "Countable 6 Hz",
+          primary: true,
+          fn: () => applyIntention("countable"),
+        },
+        { label: "Focus buzz 14 Hz", fn: () => applyIntention("buzz") },
+        { label: "Clone next point", fn: quickClonePoint },
+      ],
+    };
+  if (!portable)
+    return {
+      title: "Make the share portable.",
+      body: "This session contains local audio files. They cannot live inside a # URL. Convert them to seeded procedural ambience before sharing anonymously.",
+      micro:
+        "Private share URLs only encode the algorithm and deterministic seeds, not local files.",
+      actions: [
+        { label: "Make portable copy", primary: true, fn: makePortableCopy },
+        { label: "Copy JSON instead", fn: copyAlgorithmJson },
+      ],
+    };
+  if (analysis.issues.some((i) => i.level === "error"))
+    return {
+      title: "Fix analyzer errors before sharing widely.",
+      body: "The protocol analyzer found a hard issue. Open the analyzer card and adjust the layer that triggered it.",
+      micro: `${analysis.issues.filter((i) => i.level === "error").length} error(s) · ${analysis.estimatedPeakDb.toFixed(1)} dBFS estimated peak`,
+      actions: [
+        { label: "Copy algorithm JSON", fn: copyAlgorithmJson },
+        { label: "Render WAV anyway", fn: () => void exportWav() },
+      ],
+    };
+  return {
+    title: "Ready to audition, share, or export.",
+    body: "The stack has a timeline, is portable, and has no blocking analyzer issues. Use private URL for anonymous sharing or render a WAV locally.",
+    micro: `${session.layers.length} layers · ${stageTimes().length} points · ${analysis.estimatedPeakDb.toFixed(1)} dBFS estimated peak`,
+    actions: [
+      { label: "Copy private URL", primary: true, fn: copyShareUrl },
+      { label: "Render WAV", fn: () => void exportWav() },
+      {
+        label: "Audition primary",
+        fn: () => {
+          const p = primaryBeatLayer();
+          if (p) auditionLayer(p.id);
+        },
+      },
+    ],
+  };
+}
+
 function DeviceCheckStrip() {
   const options = [180, 220, 280, 340];
+  const current = activeCarrierHz();
   return (
-    <div className="device-check-strip">
+    <div className="device-check-strip device-calibration">
       <div>
         <b>Device sound check</b>
         <span>
-          Before modulation, verify a plain carrier is steady on the exact
-          speaker/headphone path you will use.
+          Verify plain carrier steadiness on the exact speaker/headphone path.
+          Laptop speakers can create false beating at low carriers.
         </span>
+        {verifiedCarrierHz ? (
+          <em className="mono">verified carrier: {verifiedCarrierHz} Hz</em>
+        ) : (
+          <em className="mono">no carrier marked steady yet</em>
+        )}
       </div>
       <div className="device-check-buttons">
         {options.map((hz) => (
           <button
-            className="act tiny"
+            className={
+              "act tiny " + (verifiedCarrierHz === hz ? "primary" : "")
+            }
             key={hz}
             onClick={() => loadCarrierCheck(hz)}
           >
-            {hz} Hz carrier
+            {hz} Hz
           </button>
         ))}
+        <button
+          className="act tiny"
+          disabled={!current}
+          onClick={markCurrentCarrierSteady}
+        >
+          Mark {current || "current"} steady
+        </button>
+        <button className="act tiny ghost" onClick={clearVerifiedCarrier}>
+          Clear
+        </button>
       </div>
     </div>
   );
@@ -895,6 +1047,42 @@ function StudioChecklist({
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+function IntentionSelector() {
+  const pulse = session.layers.find((l) => !isNoBeat(l));
+  return (
+    <div className="intention-selector">
+      <div className="eyebrow">Pulse intention</div>
+      <button
+        className="intent-card"
+        onClick={() => applyIntention("countable")}
+      >
+        <b>Countable pulse drill</b>
+        <span>4–8 Hz, discrete pulses, operator tracks each beat.</span>
+      </button>
+      <button className="intent-card" onClick={() => applyIntention("buzz")}>
+        <b>Fused focus buzz</b>
+        <span>12–18 Hz, pulses merge into a rough steady focus texture.</span>
+      </button>
+      <button className="intent-card" onClick={() => applyIntention("descent")}>
+        <b>Downshift / descent arc</b>
+        <span>
+          Start alpha and glide down toward theta/delta over timeline points.
+        </span>
+      </button>
+      {pulse ? (
+        <p className="small mono">
+          active pulse layer: {layerTypeLabel(pulse.type)} ·{" "}
+          {fmtNum(sampleTimelineSafe(pulse, "beatHz", activePointMin))} Hz
+        </p>
+      ) : (
+        <p className="small">
+          Choose an intention to add or convert the first tone layer.
+        </p>
+      )}
     </div>
   );
 }
@@ -1045,10 +1233,77 @@ function GlobalPointTabs() {
         </div>
       </div>
       <TimelineMap />
+      <PointInspector />
       <p className="small">
         Each point is a full snapshot of the layer stack. Between adjacent
         points, carrier frequency, beat Hz, and gain interpolate linearly in the
         playable ENTRAIN format.
+      </p>
+    </div>
+  );
+}
+
+function PointInspector() {
+  const primary =
+    primaryBeatLayer() || session.layers.find((l) => !isNoCarrier(l));
+  if (!primary)
+    return (
+      <div className="point-inspector small">
+        Add a tone layer to preview carrier/beat interpolation between point
+        tabs.
+      </div>
+    );
+  const times = stageTimes();
+  const idx = Math.max(
+    0,
+    times.findIndex((t) => Math.abs(t - activePointMin) < 1e-6),
+  );
+  const prev = times[Math.max(0, idx - 1)] ?? 0;
+  const next =
+    times[Math.min(times.length - 1, idx + 1)] ?? session.durationMin;
+  const now = activePointMin;
+  const vals = (t: number) => ({
+    carrier: sampleTimelineSafe(primary, "carrierHz", t),
+    beat: sampleTimelineSafe(primary, "beatHz", t),
+    gain: sampleTimelineSafe(primary, "gainPct", t),
+  });
+  const rows = [
+    { label: "previous", t: prev, v: vals(prev) },
+    { label: "active", t: now, v: vals(now) },
+    { label: "next", t: next, v: vals(next) },
+  ];
+  return (
+    <div className="point-inspector">
+      <div className="point-inspector-head">
+        <b>Interpolation preview</b>
+        <span className="mono">{layerShortLabel(primary)}</span>
+      </div>
+      <div className="point-values">
+        {rows.map((r) => (
+          <div
+            className={"point-value " + (r.label === "active" ? "on" : "")}
+            key={r.label}
+          >
+            <span className="mono">
+              {r.label} · {fmtPoint(r.t)}
+            </span>
+            <b>
+              {!isNoBeat(primary)
+                ? `${fmtNum(r.v.beat)} Hz beat`
+                : `${fmtNum(r.v.carrier)} Hz`}
+            </b>
+            <em>
+              {!isNoCarrier(primary)
+                ? `${fmtNum(r.v.carrier)} Hz carrier · `
+                : ""}
+              {fmtNum(r.v.gain)}% gain
+            </em>
+          </div>
+        ))}
+      </div>
+      <p className="small">
+        During playback, these values do not step. They glide continuously from
+        point to point.
       </p>
     </div>
   );
@@ -2048,6 +2303,115 @@ function workflowPhase() {
   return "ready";
 }
 
+function activeCarrierHz() {
+  const layer = session.layers.find((l) => !isNoCarrier(l));
+  if (!layer) return 0;
+  return Math.round(
+    sampleTimelineSafe(layer, "carrierHz", activePointMin) ||
+      layer.carrierHz ||
+      0,
+  );
+}
+function markCurrentCarrierSteady() {
+  const hz = activeCarrierHz();
+  if (!hz) {
+    notice = "add a tone layer first";
+    repaint();
+    return;
+  }
+  verifiedCarrierHz = hz;
+  try {
+    localStorage.setItem("entrain:verified-carrier", String(hz));
+  } catch {}
+  notice = `${hz} Hz marked steady for this playback device`;
+  repaint();
+}
+function clearVerifiedCarrier() {
+  verifiedCarrierHz = null;
+  try {
+    localStorage.removeItem("entrain:verified-carrier");
+  } catch {}
+  notice = "carrier verification cleared";
+  repaint();
+}
+function convertFirstCarrierToTrap() {
+  const l =
+    session.layers.find((x) => x.type === "carrier") ||
+    session.layers.find((x) => !isNoCarrier(x));
+  if (!l) {
+    addLayer();
+    return;
+  }
+  const p = ensureLayerPoint(l, activePointMin);
+  l.type = "iso-trap";
+  l.isoPulse = l.isoPulse || { edgeMs: 8, duty: 0.45 };
+  p.beatHz = p.beatHz || 6;
+  l.keyframes.forEach((k) => {
+    if (k.beatHz == null) k.beatHz = p.beatHz || 6;
+  });
+  notice =
+    "converted carrier into iso trap; tune Beat Hz until pulses are clear";
+  repaint(true);
+}
+function quickClonePoint() {
+  const t = Math.min(
+    session.durationMin,
+    Math.max(
+      activePointMin + 1,
+      Math.round(
+        (activePointMin + Math.min(2, session.durationMin / 3)) * 100,
+      ) / 100,
+    ),
+  );
+  for (const l of session.layers) addLayerPointAt(l, t, activePointMin);
+  activePointMin = t;
+  notice = `cloned current stack to ${fmtPoint(t)}`;
+  repaint(true);
+}
+function primaryEditablePulse() {
+  let l = session.layers.find((x) => !isNoBeat(x));
+  if (!l) {
+    convertFirstCarrierToTrap();
+    l = session.layers.find((x) => !isNoBeat(x));
+  }
+  return l || null;
+}
+function applyIntention(kind: "countable" | "buzz" | "descent") {
+  const l = primaryEditablePulse();
+  if (!l) return;
+  changeType(l, "iso-trap");
+  const p = ensureLayerPoint(l, activePointMin);
+  if (kind === "countable") {
+    p.beatHz = 6;
+    p.gainPct = Math.max(p.gainPct || 0, 35);
+    l.isoPulse = { edgeMs: 8, duty: 0.45 };
+    notice = "countable pulse intention applied: 6 Hz trap pulses";
+  } else if (kind === "buzz") {
+    p.beatHz = 14;
+    p.gainPct = Math.max(p.gainPct || 0, 30);
+    l.isoPulse = { edgeMs: 5, duty: 0.5 };
+    notice = "focus buzz intention applied: 14 Hz fused texture";
+  } else {
+    const c = p.carrierHz || l.carrierHz || 340;
+    l.keyframes = [
+      { tMin: 0, carrierHz: c, beatHz: 10, gainPct: 32 },
+      {
+        tMin: Math.max(1, session.durationMin * 0.45),
+        carrierHz: c,
+        beatHz: 6,
+        gainPct: 32,
+      },
+      { tMin: session.durationMin, carrierHz: c, beatHz: 3, gainPct: 28 },
+    ];
+    activePointMin = 0;
+    if (!session.layers.some((x) => x.type === "procedural-ambience"))
+      addProceduralAmbience();
+    notice =
+      "descent arc applied: 10 → 6 → 3 Hz with interpolated timeline points";
+  }
+  repaint(true);
+}
+
 function loadCarrierCheck(hz: number) {
   engine.stop();
   status = "idle";
@@ -2603,6 +2967,8 @@ function draw() {
 
 export default async function mount() {
   booting = true;
+  const savedCarrier = localStorage.getItem("entrain:verified-carrier");
+  verifiedCarrierHz = savedCarrier ? Number(savedCarrier) || null : null;
   const shared = await decodeSessionHash().catch((e: any) => {
     notice = e.message || "could not load shared URL";
     return null;
