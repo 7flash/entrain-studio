@@ -1,6 +1,19 @@
-# ENTRAIN TradJS Server v0.13
+# ENTRAIN TradJS Server v0.15
 
 Server-backed ENTRAIN with a first-class **pattern format**, database-backed **ready brainwave soundtracks**, a free editor, wallet-saved private library, Phantom/SPL-token gates, and a publish-time protocol analyzer.
+
+
+
+## v0.15 Studio visual restoration
+
+This pass restores the `/studio` page toward the original single-page ENTRAIN tone-console aesthetic:
+
+- Dark oscilloscope stage with live waveform, readouts, and pulsing focus dot.
+- Five-band strip for Delta / Theta / Alpha / Beta / Gamma quick layer creation.
+- Console-style command panel with primary transport and export controls.
+- Polished layer cards with colored markers, mute/solo/duplicate/remove controls, and grid-based sliders.
+- Session controls and analyzer moved into a left console rail.
+- Existing app behavior remains: multi-layer editing, ambience files, procedural beds, SBaGen import/export, private saves, and WAV render.
 
 
 
@@ -338,3 +351,30 @@ This pass upgrades group listening from a simple room timer into a more usable l
 - Presence is best-effort and expires automatically after short inactivity; audio generation remains local in each browser.
 
 Limitations: browser autoplay policy still requires a user click, network jitter still exists, and oscillator phase is not guaranteed sample-identical across devices. The feature syncs timeline position well enough for communal listening, not metrology-grade audio phase.
+
+## v0.14 SBaGen bridge
+
+This build adds a first-class SBaGen-compatible bridge while keeping `entrain.session.v1` as the canonical stored format.
+
+- Added `src/format/sbagen.ts`.
+- Studio can now:
+  - import `.sbagen` / `.txt` scripts using SBaGen-style state labels and transitions;
+  - copy the current session as a best-effort SBaGen-compatible script.
+- Admin can now:
+  - import an SBaGen script directly into the selected soundtrack row;
+  - copy the selected row as an SBaGen-compatible script for external review.
+- Supported SBaGen tokens:
+  - `pink/50`, `white/20`, `brown/30` noise beds;
+  - `100+4/50` and `100[4]/50` binaural layers;
+  - `rain.ogg mix/50` or `rain.ogg/50` ambience-file references.
+- Supported transition syntax:
+
+```txt
+h4: pink/50 100+4/50
+h5: pink/45 100+8/50
+h4 -> +00:06:00 h5
+```
+
+The importer turns state transitions into ENTRAIN keyframes. Binaural tokens use the standard formula `left = carrier - beat/2`, `right = carrier + beat/2`; for example, `100+4/50` maps to 98 Hz left and 102 Hz right at 50% layer gain. If a component appears in one state but disappears in the next, the importer fades that layer to 0% across the transition.
+
+The exporter is deliberately conservative: it emits canonical SBaGen-compatible binaural/noise/sample-reference lines and comments out unsupported ENTRAIN-only layer types such as isochronic, monaural, carriers, procedural ambience, pan motion, and crossfaded sample-loop metadata.

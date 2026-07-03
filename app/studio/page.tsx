@@ -1,16 +1,18 @@
 export default function StudioPage() {
   return (
-    <main>
-      <section className="hero" style={{ paddingBottom: "14px" }}>
-        <h1>Create / edit a track</h1>
-        <p>
-          The editor is free to use locally: build layers, play them, share
-          JSON, and render WAVs in the browser. Saving to your private library
-          asks for Phantom so the database can attach the session to your
-          wallet.
+    <main className="studio-page">
+      <section className="studio-hero">
+        <div className="kicker">A tone console for attention</div>
+        <h1>
+          ENTRAIN <em>Studio</em>
+        </h1>
+        <p className="lede">
+          Build layered binaural, isochronic, ambience, and SBaGen-compatible
+          sessions in the same dark console style as the original single-page
+          ENTRAIN instrument.
         </p>
       </section>
-      <section className="console" id="studio-root">
+      <section className="console studio-root-console" id="studio-root">
         <div className="panel">
           <p className="muted">Loading client editor…</p>
         </div>

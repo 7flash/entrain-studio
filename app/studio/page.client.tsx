@@ -43,78 +43,93 @@ const isNoCarrier = (l: EntrainLayerV1) =>
 const uid = () =>
   crypto.randomUUID?.() || Math.random().toString(36).slice(2, 9);
 
+const bandTiles = [
+  { id: "delta", name: "Delta", range: "0.5–4 Hz", hz: 2.5 },
+  { id: "theta", name: "Theta", range: "4–8 Hz", hz: 6 },
+  { id: "alpha", name: "Alpha", range: "8–12 Hz", hz: 10 },
+  { id: "beta", name: "Beta", range: "13–30 Hz", hz: 18 },
+  { id: "gamma", name: "Gamma", range: "30–45 Hz", hz: 40 },
+];
+
 function App() {
   const analysis = analyzeSession(session);
+  const primary = primaryBeatLayer();
+  const beat = primary?.keyframes?.[0]?.beatHz || 0;
+  const band = beat ? bandName(beat) : "ambient";
+  const current = engine.running ? engine.positionSec() : 0;
   return (
-    <div>
-      <div className="panel toolbar">
-        <div>
-          <strong>{session.name}</strong>
-          <div className="small">
-            {session.durationMin} min · {session.layers.length} layers ·{" "}
-            {status}
-          </div>
-          {notice ? <div className="small">{notice}</div> : null}
+    <div className="studio-shell">
+      <div className="studio-stage">
+        <canvas id="scope-canvas" />
+        <span className="readout l mono" id="studio-timer">
+          {fmtClock(current)} / {fmtClock(session.durationMin * 60)}
+        </span>
+        <span className="readout r mono">
+          <span className="bandtag">{band}</span> ·{" "}
+          {primary ? describeLayer(primary) : "ambience only"}
+        </span>
+        <div className="studio-focus" id="studio-focus">
+          <span />
         </div>
-        <div className="tagrow">
-          <button className="btn primary" onClick={toggle}>
-            {engine.running ? "Stop" : "Start"}
+        <span className="readout b mono">
+          {session.layers.length} layers ·{" "}
+          {analysis.headphonesRequired ? "headphones" : "speakers ok"} ·{" "}
+          {session.loop?.mode || "hold-last"}
+        </span>
+        <span className="readout br mono" id="studio-state">
+          {status}
+        </span>
+      </div>
+
+      <div className="bands studio-bands" aria-label="Brainwave bands">
+        {bandTiles.map((b) => (
+          <button
+            className={"band " + (band === b.id ? "on" : "")}
+            data-band={b.id}
+            onClick={() => addBandLayer(b.hz)}
+            key={b.id}
+          >
+            <div className="nm">{b.name}</div>
+            <div className="rg">{b.range}</div>
           </button>
-          <button className="btn" onClick={addLayer}>
+        ))}
+      </div>
+
+      <div className="studio-command-panel">
+        <div>
+          <div className="eyebrow">Live console</div>
+          <h2>{session.name}</h2>
+          <div className="small">
+            {session.durationMin} min · {session.layers.length} layers ·
+            estimated peak {analysis.estimatedPeakDb.toFixed(1)} dBFS
+          </div>
+          {notice ? <div className="notice-inline mono">{notice}</div> : null}
+        </div>
+        <div className="btnrow studio-actions">
+          <button className="act primary" onClick={toggle}>
+            {engine.running ? "■ Stop" : "▶ Start"}
+          </button>
+          <button className="act" onClick={addLayer}>
             + Tone
           </button>
-          <button className="btn" onClick={addNoise}>
+          <button className="act" onClick={addNoise}>
             + Noise
           </button>
-          <button className="btn" onClick={addAmbience}>
-            + Ambience file
+          <button className="act" onClick={addAmbience}>
+            + Ambience
           </button>
-          <button className="btn" onClick={addProceduralAmbience}>
-            + Procedural bed
+          <button className="act" onClick={addProceduralAmbience}>
+            + Procedural
           </button>
-          <button className="btn" onClick={copyShareUrl}>
-            Copy share URL
+          <button className="act" disabled={exportBusy} onClick={exportWav}>
+            {exportBusy ? "Rendering…" : "↓ Render WAV"}
           </button>
-          <button className="btn" onClick={saveServer}>
-            Save private
-          </button>
-          <button className="btn" onClick={sendAdminDraft}>
-            Admin draft
-          </button>
-          <button className="btn" disabled={exportBusy} onClick={exportWav}>
-            {exportBusy ? "Rendering…" : "Render WAV"}
-          </button>
-          <button className="btn" onClick={exportJson}>
-            Export JSON
-          </button>
-          <button className="btn" onClick={copyPatternText}>
-            Copy pattern text
-          </button>
-          <button className="btn" onClick={copySbagenText}>
-            Copy SBaGen
-          </button>
-          <label className="btn">
-            Import JSON
-            <input
-              type="file"
-              accept=".json,application/json"
-              style={{ display: "none" }}
-              onChange={importJson}
-            />
-          </label>
-          <label className="btn">
-            Import pattern/SBaGen
-            <input
-              type="file"
-              accept=".txt,.sbagen,text/plain"
-              style={{ display: "none" }}
-              onChange={importPatternText}
-            />
-          </label>
         </div>
       </div>
-      <div className="panel studio-grid">
-        <aside>
+
+      <div className="studio-workbench">
+        <aside className="studio-side">
+          <div className="eyebrow">Session</div>
           <div className="field">
             <label>Session name</label>
             <input
@@ -136,7 +151,7 @@ function App() {
               }}
             />
           </div>
-          <div className="two">
+          <div className="two compact-two">
             <div className="field">
               <label>Duration minutes</label>
               <input
@@ -187,7 +202,7 @@ function App() {
             </select>
           </div>
           <div className="field">
-            <label>When played forever/exported longer than pattern</label>
+            <label>Play/export beyond pattern</label>
             <select
               value={session.loop?.mode || "hold-last"}
               onChange={(e: any) => {
@@ -204,16 +219,60 @@ function App() {
             </select>
           </div>
           <AnalysisCard analysis={analysis} />
-          <div id="scope" className="scope">
-            <canvas id="scope-canvas" />
+          <div className="studio-file-actions">
+            <button className="act" onClick={copyShareUrl}>
+              Copy share URL
+            </button>
+            <button className="act" onClick={saveServer}>
+              Save private
+            </button>
+            <button className="act" onClick={sendAdminDraft}>
+              Admin draft
+            </button>
+            <button className="act" onClick={exportJson}>
+              Export JSON
+            </button>
+            <button className="act" onClick={copyPatternText}>
+              Copy pattern
+            </button>
+            <button className="act" onClick={copySbagenText}>
+              Copy SBaGen
+            </button>
+            <label className="act file-act">
+              Import JSON
+              <input
+                type="file"
+                accept=".json,application/json"
+                style={{ display: "none" }}
+                onChange={importJson}
+              />
+            </label>
+            <label className="act file-act">
+              Import pattern/SBaGen
+              <input
+                type="file"
+                accept=".txt,.sbagen,text/plain"
+                style={{ display: "none" }}
+                onChange={importPatternText}
+              />
+            </label>
           </div>
           <p className="small">
-            Share URLs and JSON include filenames and loop settings for ambience
-            files, but never embed local audio buffers. Reload the file after
-            import/share.
+            Ambience files stay local. Saved/share formats preserve the filename
+            and loop settings, not the audio buffer.
           </p>
         </aside>
-        <section>
+
+        <section className="studio-layers">
+          <div className="layers-title">
+            <div>
+              <div className="eyebrow">Layers</div>
+              <h2>Signal stack</h2>
+            </div>
+            <div className="small">
+              mute / solo / duplicate / edit each layer
+            </div>
+          </div>
           {session.layers.map((l, index) => (
             <LayerCard l={l} index={index} key={l.id} />
           ))}
@@ -232,30 +291,54 @@ function LayerCard({
   key?: string;
 }) {
   const missingSample = l.type === "sample" && !engine.hasSample(l.id);
+  const firstBeat = l.keyframes[0]?.beatHz || 0;
+  const color = layerColor(firstBeat, l.type);
   return (
-    <div className="layer">
-      <div className="layer-head">
+    <div className={"studio-layer layer-" + l.type}>
+      <div className="studio-layer-head">
+        <div
+          className="layer-mark"
+          style={{ background: color, boxShadow: `0 0 18px ${color}` }}
+        />
         <div>
-          <strong>
-            {index + 1}. {l.type}
-          </strong>
-          <div className="small">
+          <div className="layer-title">
+            {String(index + 1).padStart(2, "0")} · {layerTypeLabel(l.type)}
+          </div>
+          <div className="layer-sub mono">
             {describeLayer(l)}
             {missingSample ? " · file not loaded" : ""}
           </div>
         </div>
-        <div className="tagrow">
-          <button className="btn" onClick={() => duplicateLayer(l.id)}>
-            dup
+        <div className="layer-tools">
+          <button
+            className={"act tiny " + (l.mute ? "warn" : "")}
+            onClick={() => {
+              l.mute = !l.mute;
+              repaint(true);
+            }}
+          >
+            {l.mute ? "Muted" : "Mute"}
           </button>
-          <button className="btn" onClick={() => removeLayer(l.id)}>
-            remove
+          <button
+            className={"act tiny " + (l.solo ? "primary" : "")}
+            onClick={() => {
+              l.solo = !l.solo;
+              repaint(true);
+            }}
+          >
+            Solo
+          </button>
+          <button className="act tiny" onClick={() => duplicateLayer(l.id)}>
+            Dup
+          </button>
+          <button className="act tiny warn" onClick={() => removeLayer(l.id)}>
+            ✕
           </button>
         </div>
       </div>
-      <div className="two">
+      <div className="layer-controls-grid">
         <div className="field">
-          <label>Type</label>
+          <label>Method</label>
           <select
             value={l.type}
             onChange={(e: any) => {
@@ -265,13 +348,15 @@ function LayerCard({
           >
             {layerTypes.map((x) => (
               <option value={x} key={x}>
-                {x}
+                {layerTypeLabel(x)}
               </option>
             ))}
           </select>
         </div>
         <div className="field">
-          <label>Gain %</label>
+          <label>
+            Gain <b>{l.keyframes[0]?.gainPct || 0}%</b>
+          </label>
           <input
             type="range"
             min="0"
@@ -287,11 +372,14 @@ function LayerCard({
         </div>
         {!isNoCarrier(l) ? (
           <div className="field">
-            <label>Carrier Hz</label>
+            <label>
+              Carrier <b>{l.carrierHz || 220} Hz</b>
+            </label>
             <input
-              type="number"
-              min="20"
-              max="2000"
+              type="range"
+              min="40"
+              max="1200"
+              step="5"
               value={String(l.carrierHz || 220)}
               onInput={(e: any) => {
                 l.carrierHz = Number(e.currentTarget.value);
@@ -302,11 +390,13 @@ function LayerCard({
         ) : null}
         {!isNoBeat(l) ? (
           <div className="field">
-            <label>Beat Hz</label>
+            <label>
+              Beat start <b>{l.keyframes[0]?.beatHz || 10} Hz</b>
+            </label>
             <input
-              type="number"
+              type="range"
               step="0.1"
-              min="0.1"
+              min="0.5"
               max="45"
               value={String(l.keyframes[0]?.beatHz || 10)}
               onInput={(e: any) => {
@@ -320,11 +410,14 @@ function LayerCard({
         ) : null}
         {!isNoBeat(l) ? (
           <div className="field">
-            <label>Beat end Hz</label>
+            <label>
+              Beat end{" "}
+              <b>{l.keyframes[l.keyframes.length - 1]?.beatHz || 10} Hz</b>
+            </label>
             <input
-              type="number"
+              type="range"
               step="0.1"
-              min="0.1"
+              min="0.5"
               max="45"
               value={String(l.keyframes[l.keyframes.length - 1]?.beatHz || 10)}
               onInput={(e: any) => {
@@ -356,7 +449,9 @@ function LayerCard({
         {l.type === "procedural-ambience" ? <ProceduralControls l={l} /> : null}
         {l.type !== "binaural" ? (
           <div className="field">
-            <label>Pan {fmtPan(l.pan || 0)}</label>
+            <label>
+              Pan <b>{fmtPan(l.pan || 0)}</b>
+            </label>
             <input
               type="range"
               min="-1"
@@ -372,7 +467,14 @@ function LayerCard({
         ) : null}
         {l.type !== "binaural" ? (
           <div className="field">
-            <label>Pan motion Hz</label>
+            <label>
+              Pan motion{" "}
+              <b>
+                {l.panMotion?.rateHz
+                  ? l.panMotion.rateHz.toFixed(3) + " Hz"
+                  : "off"}
+              </b>
+            </label>
             <input
               type="range"
               min="0"
@@ -392,7 +494,10 @@ function LayerCard({
         ) : null}
         {l.type !== "binaural" && (l.panMotion?.rateHz || 0) > 0 ? (
           <div className="field">
-            <label>Motion depth</label>
+            <label>
+              Motion depth{" "}
+              <b>{Math.round((l.panMotion?.depth || 0.35) * 100)}%</b>
+            </label>
             <input
               type="range"
               min="0"
@@ -411,8 +516,8 @@ function LayerCard({
         ) : null}
         {l.type === "sample" ? <SampleControls l={l} /> : null}
       </div>
-      <div className="field">
-        <label>Timeline points</label>
+      <div className="timeline-wrap">
+        <label className="small">Timeline points</label>
         <TimelineEditor l={l} />
       </div>
     </div>
@@ -425,8 +530,8 @@ function AnalysisCard({
   analysis: ReturnType<typeof analyzeSession>;
 }) {
   return (
-    <div className="notice">
-      <strong>Protocol analyzer</strong>
+    <div className="note analyzer-note">
+      <b>Protocol analyzer</b>
       <div className="small">
         {analysis.headphonesRequired
           ? "headphones required"
@@ -656,6 +761,94 @@ function TimelineEditor({ l }: { l: EntrainLayerV1 }) {
       </tbody>
     </table>
   );
+}
+
+function primaryBeatLayer() {
+  return (
+    session.layers.find((l) => !l.mute && !isNoBeat(l)) ||
+    session.layers.find((l) => !isNoBeat(l))
+  );
+}
+function bandName(hz: number) {
+  if (hz < 4) return "delta";
+  if (hz < 8) return "theta";
+  if (hz < 13) return "alpha";
+  if (hz < 30) return "beta";
+  return "gamma";
+}
+function layerColor(hz: number, type: LayerType) {
+  if (type === "noise" || type === "sample" || type === "procedural-ambience")
+    return "#5d6d87";
+  const b = bandName(hz || 10);
+  return b === "delta"
+    ? "#6b7cf0"
+    : b === "theta"
+      ? "#5aa9e6"
+      : b === "alpha"
+        ? "#54dccf"
+        : b === "beta"
+          ? "#e6a94a"
+          : "#e2726a";
+}
+function layerTypeLabel(t: LayerType) {
+  return (
+    (
+      {
+        binaural: "Binaural",
+        monaural: "Monaural",
+        "iso-smooth": "Isochronic smooth",
+        "iso-hard": "Isochronic hard",
+        carrier: "Plain carrier",
+        noise: "Noise bed",
+        sample: "Ambience file",
+        "procedural-ambience": "Procedural ambience",
+      } as Record<LayerType, string>
+    )[t] || t
+  );
+}
+function fmtClock(sec: number) {
+  sec = Math.max(0, Math.floor(sec || 0));
+  const h = Math.floor(sec / 3600),
+    m = Math.floor((sec % 3600) / 60),
+    s = sec % 60;
+  return h
+    ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
+    : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+function addBandLayer(hz: number) {
+  session.layers.push({
+    id: uid(),
+    type: "binaural",
+    carrierHz: hz >= 30 ? 300 : 220,
+    wave: "sine",
+    keyframes: [
+      { tMin: 0, beatHz: hz, gainPct: 32 },
+      { tMin: session.durationMin, beatHz: hz, gainPct: 32 },
+    ],
+  });
+  repaint(true);
+}
+function syncLiveReadouts() {
+  const elapsed = engine.positionSec();
+  const t = document.getElementById("studio-timer");
+  if (t)
+    t.textContent = `${fmtClock(elapsed)} / ${fmtClock(session.durationMin * 60)}`;
+  const state = document.getElementById("studio-state");
+  if (state) state.textContent = status;
+  const focus = document.getElementById("studio-focus") as HTMLElement | null;
+  const primary = primaryBeatLayer();
+  if (focus && primary) {
+    const beat = Math.max(0.5, primary.keyframes[0]?.beatHz || 10);
+    const ph = (elapsed * beat) % 1;
+    focus.style.transform =
+      ph < 0.5
+        ? "translate(-50%,-50%) scale(1.28)"
+        : "translate(-50%,-50%) scale(1)";
+    focus.style.boxShadow =
+      ph < 0.5
+        ? "0 0 38px 6px rgba(84,220,207,.58)"
+        : "0 0 0 rgba(84,220,207,0)";
+  }
 }
 
 function describeLayer(l: EntrainLayerV1) {
@@ -937,6 +1130,7 @@ function draw() {
     "scope-canvas",
   ) as HTMLCanvasElement | null;
   if (canvas) engine.drawScope(canvas);
+  syncLiveReadouts();
   requestAnimationFrame(draw);
 }
 
