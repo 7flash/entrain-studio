@@ -1,6 +1,13 @@
 import { Database, z } from "sqlite-zod-orm";
 import type { EntrainSessionV1, TemplateTier } from "@/format/entrain-format";
 
+const nowDefault = () => Date.now();
+
+const timestamps = {
+  createdAt: z.number().default(nowDefault),
+  updatedAt: z.number().default(nowDefault),
+};
+
 export const db = new Database(
   process.env.DB_PATH || "entrain.db",
   {
@@ -41,6 +48,7 @@ export const db = new Database(
       priceCurrency: z.string().default("SOL"),
       payoutWallet: z.string().optional(),
       purchaseCount: z.number().default(0),
+      ...timestamps,
     }),
     walletChallenges: z.object({
       publicKey: z.string(),
@@ -49,6 +57,7 @@ export const db = new Database(
       expiresAt: z.number(),
       used: z.boolean().default(false),
       consumeToken: z.string().optional(),
+      ...timestamps,
     }),
     walletSessions: z.object({
       sessionId: z.string(),
@@ -56,14 +65,14 @@ export const db = new Database(
       balance: z.number().default(0),
       expiresAt: z.number(),
       lastRefreshedAt: z.number().default(0),
+      ...timestamps,
     }),
     creatorProfiles: z.object({
       publicKey: z.string(),
       displayName: z.string(),
       bio: z.string().optional(),
       payoutWallet: z.string(),
-      createdAt: z.number(),
-      updatedAt: z.number().optional(),
+      ...timestamps,
     }),
     soundtrackPurchases: z.object({
       publicKey: z.string(),
@@ -74,7 +83,7 @@ export const db = new Database(
       currency: z.string().default("SOL"),
       txSignature: z.string(),
       status: z.string().default("confirmed"),
-      createdAt: z.number(),
+      ...timestamps,
     }),
     savedSessions: z.object({
       publicKey: z.string(),
@@ -86,15 +95,14 @@ export const db = new Database(
       session: z.any(),
       isFavorite: z.boolean().default(false),
       lastPlayedAt: z.number().optional(),
-      createdAt: z.number(),
-      updatedAt: z.number().optional(),
+      ...timestamps,
     }),
     playEvents: z.object({
       publicKey: z.string().optional(),
       soundtrackSlug: z.string().optional(),
       savedSessionId: z.number().optional(),
       action: z.string(),
-      createdAt: z.number(),
+      ...timestamps,
     }),
     syncRooms: z.object({
       roomId: z.string(),
@@ -105,9 +113,8 @@ export const db = new Database(
       startedAt: z.number().default(0), // Unix ms; elapsed = serverNow - startedAt while playing
       pausedOffsetSec: z.number().default(0),
       createdBy: z.string().optional(),
-      createdAt: z.number(),
-      updatedAt: z.number(),
       expiresAt: z.number(),
+      ...timestamps,
     }),
     syncRoomPresence: z.object({
       roomId: z.string(),
@@ -119,10 +126,15 @@ export const db = new Database(
       rttMs: z.number().optional(),
       joinedAt: z.number(),
       lastSeenAt: z.number(),
+      ...timestamps,
     }),
   },
   {
-    timestamps: true,
+    // We define timestamp columns explicitly in each table schema above.
+    // sqlite-zod-orm's global timestamps option also injects createdAt/updatedAt.
+    // Leaving it enabled after adding creator/purchase/sync tables caused:
+    // SQLiteError: duplicate column name: createdAt
+    timestamps: false,
     relations: {},
   },
 );
@@ -163,4 +175,6 @@ export type TemplateRow = {
   priceCurrency?: string;
   payoutWallet?: string;
   purchaseCount?: number;
+  createdAt?: number;
+  updatedAt?: number;
 };

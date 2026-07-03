@@ -46,3 +46,26 @@ body{font-family:'IBM Plex Sans',ui-sans-serif,system-ui,-apple-system,"Segoe UI
   margin:-2px 0 8px;
 }
 .studio-account-box[open] summary{color:var(--trace)}
+
+/* v0.19: private URL capsules and local-first controls */
+.share-meta{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+  margin:8px 0 10px;
+}
+.share-meta span{
+  border:1px solid var(--line);
+  border-radius:8px;
+  background:#080d15;
+  color:var(--muted);
+  padding:6px 7px;
+  font-size:11px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+@media(max-width:650px){.share-meta{grid-template-columns:1fr}}
+.field.wide{grid-column:1/-1}
+.layer-additive .layer-title{color:#9be7d8}
+.layer-karplus .layer-title{color:#d7b16a}

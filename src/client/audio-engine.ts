@@ -157,6 +157,26 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       stops.push(src);
       return { node: layerGain, stops };
     }
+
+    if (l.type === "additive") {
+      const stops2 = buildAdditiveLayer(ctx, l, input, start, stopAt);
+      stops.push(...stops2);
+      return { node: layerGain, stops };
+    }
+    if (l.type === "karplus") {
+      const stops2 = buildKarplusLayer(
+        ctx,
+        l,
+        input,
+        start,
+        stopAt,
+        offsetSec,
+        live,
+        cleanups,
+      );
+      stops.push(...stops2);
+      return { node: layerGain, stops };
+    }
     if (l.type === "carrier") {
       const o = ctx.createOscillator();
       o.type = "sine";
@@ -577,6 +597,215 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
     },
   };
 }
+
+function buildAdditiveLayer(
+  ctx: BaseAudioContext,
+  l: EntrainLayerV1,
+  input: AudioNode,
+  start: number,
+  stopAt: number,
+) {
+  const stops: AudioScheduledSourceNode[] = [];
+  const base = clamp(l.carrierHz || 136.1, 20, 2000);
+  const partials = (
+    l.partials && l.partials.length ? l.partials : bowlPartials()
+  ).slice(0, 16);
+  const totalGain = Math.max(
+    1,
+    partials.reduce((sum, p) => sum + Math.max(0, p.gain || 0), 0),
+  );
+  const env = l.envelope || {
+    attackMs: 800,
+    decayMs: 2000,
+    sustain: 0.85,
+    releaseMs: 3000,
+  };
+  for (let i = 0; i < partials.length; i++) {
+    const part = partials[i];
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = l.wave || "sine";
+    const cents = Math.pow(2, (part.detuneCents || 0) / 1200);
+    osc.frequency.setValueAtTime(
+      base * Math.max(0.05, part.ratio || 1) * cents,
+      start,
+    );
+    const target = Math.max(0, part.gain || 0) / totalGain;
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.linearRampToValueAtTime(
+      target,
+      start + Math.max(0.001, (env.attackMs || 0) / 1000),
+    );
+    if (env.decayMs > 0 && env.sustain < 1) {
+      g.gain.linearRampToValueAtTime(
+        target * clamp(env.sustain, 0, 1),
+        start + Math.max(0.001, (env.attackMs + env.decayMs) / 1000),
+      );
+    }
+    if (part.decaySec && part.decaySec > 0) {
+      g.gain.setTargetAtTime(0.0001, start, Math.max(0.02, part.decaySec / 5));
+    }
+    const rel = Math.max(0.001, (env.releaseMs || 0) / 1000);
+    if (stopAt - start > rel + 0.05) {
+      g.gain.setValueAtTime(
+        Math.max(0.0001, target * clamp(env.sustain ?? 1, 0, 1)),
+        Math.max(start, stopAt - rel),
+      );
+      g.gain.linearRampToValueAtTime(0.0001, stopAt);
+    }
+    osc.connect(g);
+    g.connect(input);
+    osc.start(start);
+    osc.stop(stopAt + 0.02);
+    stops.push(osc);
+  }
+  return stops;
+}
+
+function buildKarplusLayer(
+  ctx: BaseAudioContext,
+  l: EntrainLayerV1,
+  input: AudioNode,
+  start: number,
+  stopAt: number,
+  offsetSec = 0,
+  live = false,
+  cleanups: Array<() => void> = [],
+) {
+  const stops: AudioScheduledSourceNode[] = [];
+  const cfg = l.karplus || {
+    rateHz: 0.08,
+    decay: 0.996,
+    brightness: 0.5,
+    durationSec: 6,
+  };
+  const freq = clamp(l.carrierHz || 220, 40, 1600);
+  const rate = clamp(cfg.rateHz || 0.08, 0.005, 2);
+  const interval = 1 / rate;
+  const dur = clamp(cfg.durationSec || 6, 1, 30);
+  let t = start - (Math.max(0, offsetSec) % interval);
+  let i = 0;
+  const scheduleOne = (at: number, index: number) => {
+    if (at + dur <= start || at >= stopAt) return;
+    const buf = karplusBuffer(
+      ctx,
+      freq,
+      (l.seed || 4242) + index * 101,
+      cfg.decay || 0.996,
+      cfg.brightness ?? 0.5,
+      dur,
+    );
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(input);
+    src.start(Math.max(start, at), Math.max(0, start - at));
+    src.stop(Math.min(stopAt, at + dur + 0.05));
+    stops.push(src);
+  };
+  const scheduleUntil = (horizonAbs: number, maxNodes = 10000) => {
+    let guard = 0;
+    while (t < Math.min(stopAt, horizonAbs) && guard++ < maxNodes) {
+      scheduleOne(t, i++);
+      t += interval;
+    }
+  };
+  if (!live) {
+    scheduleUntil(stopAt);
+    return stops;
+  }
+  const LOOKAHEAD_SEC = 45;
+  scheduleUntil(Math.min(stopAt, start + LOOKAHEAD_SEC), 2000);
+  const timer = setInterval(() => {
+    const current = "currentTime" in ctx ? ctx.currentTime : 0;
+    if (current + LOOKAHEAD_SEC >= stopAt) {
+      scheduleUntil(stopAt, 2000);
+      clearInterval(timer);
+      return;
+    }
+    scheduleUntil(current + LOOKAHEAD_SEC, 2000);
+  }, 10_000);
+  cleanups.push(() => clearInterval(timer));
+  return stops;
+}
+
+function karplusBuffer(
+  ctx: BaseAudioContext,
+  freq: number,
+  seed: number,
+  decay = 0.996,
+  brightness = 0.5,
+  lenSec = 6,
+) {
+  const len = Math.max(1, Math.floor(ctx.sampleRate * lenSec));
+  const n = Math.max(2, Math.round(ctx.sampleRate / Math.max(40, freq)));
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  const rnd = lcg(seed);
+  const ring = new Float32Array(n);
+  const bright = clamp(brightness, 0, 1);
+  for (let i = 0; i < n; i++)
+    ring[i] = (rnd() * 2 - 1) * (0.25 + 0.75 * bright);
+  let p = 0;
+  for (let i = 0; i < len; i++) {
+    const cur = ring[p];
+    const nxt = ring[(p + 1) % n];
+    d[i] = cur * 0.72;
+    const lowpassed = 0.5 * (cur + nxt);
+    const sharper = lowpassed * (1 - bright * 0.35) + cur * (bright * 0.35);
+    ring[p] = clamp(decay, 0.9, 0.9999) * sharper;
+    p = (p + 1) % n;
+  }
+  return buf;
+}
+
+function bowlPartials(): Array<{
+  ratio: number;
+  gain: number;
+  decaySec?: number;
+  detuneCents?: number;
+}> {
+  return [
+    { ratio: 1, gain: 1, detuneCents: 0 },
+    { ratio: 1.5, gain: 0.5, detuneCents: 2 },
+    { ratio: 2.001, gain: 0.32, detuneCents: -3 },
+  ];
+}
+
+function additiveLoopBuffer(
+  ctx: BaseAudioContext,
+  baseHz: number,
+  partials: Array<{ ratio: number; gain: number; detuneCents?: number }>,
+  seed: number,
+  lenSec = 4,
+) {
+  const len = Math.floor(ctx.sampleRate * lenSec);
+  const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  const totalGain = Math.max(
+    1,
+    partials.reduce((s, p) => s + Math.max(0, p.gain || 0), 0),
+  );
+  const rnd = lcg(seed || 1);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    const phaseOffset = ch ? Math.PI * 0.37 : 0;
+    for (let i = 0; i < len; i++) {
+      const t = i / ctx.sampleRate;
+      const slow = Math.sin(2 * Math.PI * 0.07 * t + phaseOffset) * 0.5 + 0.5;
+      let v = 0;
+      for (const part of partials) {
+        const cents = Math.pow(2, (part.detuneCents || 0) / 1200);
+        v +=
+          Math.sin(
+            2 * Math.PI * baseHz * part.ratio * cents * t + phaseOffset,
+          ) *
+          (part.gain / totalGain);
+      }
+      d[i] = v * (0.72 + 0.28 * slow) * 0.18 + (rnd() * 2 - 1) * 0.012;
+    }
+  }
+  return buf;
+}
+
 function noise(ctx: BaseAudioContext, color: string, seed = 1001) {
   const len = Math.floor(ctx.sampleRate * 2),
     buf = ctx.createBuffer(2, len, ctx.sampleRate);
@@ -647,6 +876,12 @@ function bufferToWav(buf: AudioBuffer) {
     }
   return new Blob([ab], { type: "audio/wav" });
 }
+function finishBufferSource(ctx: BaseAudioContext, buf: AudioBuffer) {
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.loop = true;
+  return src;
+}
 function proceduralAmbience(
   ctx: BaseAudioContext,
   recipe: string,
@@ -654,6 +889,11 @@ function proceduralAmbience(
 ) {
   const len = Math.floor(ctx.sampleRate * 4),
     buf = ctx.createBuffer(2, len, ctx.sampleRate);
+  if (recipe === "bowl-drone")
+    return finishBufferSource(
+      ctx,
+      additiveLoopBuffer(ctx, 136.1, bowlPartials(), seed, 4),
+    );
   const rnd = lcg(seed);
   for (let ch = 0; ch < 2; ch++) {
     const d = buf.getChannelData(ch);
@@ -672,14 +912,6 @@ function proceduralAmbience(
       if (recipe === "brown-room") {
         last = (last + 0.018 * w) / 1.018;
         d[i] = last * 2.8 + Math.sin(2 * Math.PI * 55 * t + phaseOffset) * 0.02;
-      } else if (recipe === "bowl-drone") {
-        const slow = Math.sin(2 * Math.PI * 0.07 * t + phaseOffset) * 0.5 + 0.5;
-        d[i] =
-          (Math.sin(2 * Math.PI * 136.1 * t + phaseOffset) * 0.11 +
-            Math.sin(2 * Math.PI * 204.2 * t) * 0.055 +
-            Math.sin(2 * Math.PI * 272.4 * t + phaseOffset) * 0.035) *
-            (0.72 + 0.28 * slow) +
-          w * 0.012;
       } else {
         b0 = 0.99886 * b0 + w * 0.0555179;
         b1 = 0.99332 * b1 + w * 0.0750759;
@@ -695,10 +927,7 @@ function proceduralAmbience(
       }
     }
   }
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  src.loop = true;
-  return src;
+  return finishBufferSource(ctx, buf);
 }
 function lcg(seed: number) {
   let s = seed >>> 0 || 1;

@@ -6,11 +6,31 @@ export type LayerType =
   | "carrier"
   | "noise"
   | "sample"
-  | "procedural-ambience";
+  | "procedural-ambience"
+  | "additive"
+  | "karplus";
 export type Wave = "sine" | "triangle" | "sawtooth";
 export type NoiseColor = "white" | "pink" | "brown";
 export type ProceduralAmbienceRecipe =
   "rain" | "pink-rain" | "brown-room" | "bowl-drone";
+export type AdditivePartial = {
+  ratio: number;
+  gain: number;
+  decaySec?: number;
+  detuneCents?: number;
+};
+export type InstrumentEnvelope = {
+  attackMs: number;
+  decayMs: number;
+  sustain: number;
+  releaseMs: number;
+};
+export type KarplusConfig = {
+  rateHz: number;
+  decay: number;
+  brightness: number;
+  durationSec: number;
+};
 export type TemplateTier = "free" | "holder" | "pro" | "collector";
 export type SessionLoopMode = "repeat" | "hold-last" | "crossfade-repeat";
 
@@ -34,11 +54,14 @@ export type EntrainLayerV1 = {
   wave?: Wave;
   noiseColor?: NoiseColor;
   ambienceRecipe?: ProceduralAmbienceRecipe;
-  seed?: number; // deterministic seed for procedural ambience and noise beds.
+  seed?: number; // deterministic seed for procedural ambience, noise beds, and Karplus plucks.
   pan?: number; // -1..1. Binaural layers ignore pan by design.
   panMotion?: { rateHz: number; depth: number }; // rate 0..0.25, depth 0..1.
   sampleName?: string; // Runtime audio buffer is never serialized.
   sampleLoop?: SampleLoopV1; // Crossfaded/manual loop metadata for ambience files.
+  partials?: AdditivePartial[]; // Additive synthesis partials; frequency = carrierHz * ratio * detune.
+  envelope?: InstrumentEnvelope; // Fast instrument envelope for algorithmic instruments.
+  karplus?: KarplusConfig; // Seeded Karplus-Strong pluck bed.
   mute?: boolean;
   solo?: boolean;
   keyframes: Keyframe[];
@@ -168,6 +191,8 @@ function sanitizeLayer(
     "noise",
     "sample",
     "procedural-ambience",
+    "additive",
+    "karplus",
   ];
   const waves: Wave[] = ["sine", "triangle", "sawtooth"];
   const noise: NoiseColor[] = ["white", "pink", "brown"];
@@ -182,7 +207,9 @@ function sanitizeLayer(
     type === "noise" ||
     type === "carrier" ||
     type === "sample" ||
-    type === "procedural-ambience";
+    type === "procedural-ambience" ||
+    type === "additive" ||
+    type === "karplus";
   const noCarrier =
     type === "noise" || type === "sample" || type === "procedural-ambience";
   const keyframesRaw = Array.isArray(l?.keyframes)
@@ -213,12 +240,19 @@ function sanitizeLayer(
     1,
   );
   const loop = sanitizeSampleLoop(l?.sampleLoop);
+  const partials = sanitizePartials(l?.partials, type);
+  const envelope = sanitizeEnvelope(l?.envelope);
+  const karplus = sanitizeKarplus(l?.karplus);
   return {
     id: String(l?.id || rid(`layer-${index}`)).slice(0, 80),
     type,
     carrierHz: noCarrier
       ? undefined
-      : clampNum(l?.carrierHz ?? l?.carrier ?? 220, 20, 2000),
+      : clampNum(
+          l?.carrierHz ?? l?.carrier ?? (type === "additive" ? 136.1 : 220),
+          20,
+          2000,
+        ),
     wave: waves.includes(l?.wave) ? l.wave : "sine",
     noiseColor: noise.includes(l?.noiseColor) ? l.noiseColor : "pink",
     ambienceRecipe:
@@ -228,7 +262,7 @@ function sanitizeLayer(
           ? "pink-rain"
           : undefined,
     seed:
-      type === "procedural-ambience" || type === "noise"
+      type === "procedural-ambience" || type === "noise" || type === "karplus"
         ? Math.floor(
             clampNum(l?.seed ?? stableLayerSeed(l, index), 1, 2147483646),
           )
@@ -239,9 +273,58 @@ function sanitizeLayer(
     sampleName:
       type === "sample" ? String(l?.sampleName || "").slice(0, 240) : undefined,
     sampleLoop: type === "sample" ? loop : undefined,
+    partials: type === "additive" ? partials : undefined,
+    envelope: type === "additive" || type === "karplus" ? envelope : undefined,
+    karplus: type === "karplus" ? karplus : undefined,
     mute: !!l?.mute,
     solo: !!l?.solo,
     keyframes,
+  };
+}
+
+function sanitizePartials(
+  value: any,
+  type: LayerType,
+): AdditivePartial[] | undefined {
+  if (type !== "additive") return undefined;
+  const raw =
+    Array.isArray(value) && value.length
+      ? value
+      : [
+          { ratio: 1, gain: 1 },
+          { ratio: 1.5, gain: 0.5 },
+          { ratio: 2.001, gain: 0.32 },
+        ];
+  return raw
+    .slice(0, 16)
+    .map((p: any) => ({
+      ratio: clampNum(p?.ratio ?? 1, 0.05, 24),
+      gain: clampNum(p?.gain ?? 0.25, 0, 1),
+      decaySec:
+        p?.decaySec == null ? undefined : clampNum(p.decaySec, 0.05, 600),
+      detuneCents:
+        p?.detuneCents == null
+          ? undefined
+          : clampNum(p.detuneCents, -1200, 1200),
+    }))
+    .filter((p: AdditivePartial) => p.gain > 0 && p.ratio > 0);
+}
+
+function sanitizeEnvelope(env: any): InstrumentEnvelope {
+  return {
+    attackMs: clampNum(env?.attackMs ?? 800, 0, 30000),
+    decayMs: clampNum(env?.decayMs ?? 2000, 0, 120000),
+    sustain: clampNum(env?.sustain ?? 0.85, 0, 1),
+    releaseMs: clampNum(env?.releaseMs ?? 3000, 0, 120000),
+  };
+}
+
+function sanitizeKarplus(cfg: any): KarplusConfig {
+  return {
+    rateHz: clampNum(cfg?.rateHz ?? 0.08, 0.005, 2),
+    decay: clampNum(cfg?.decay ?? 0.996, 0.9, 0.9999),
+    brightness: clampNum(cfg?.brightness ?? 0.5, 0, 1),
+    durationSec: clampNum(cfg?.durationSec ?? 6, 1, 30),
   };
 }
 
@@ -347,7 +430,9 @@ export function summarizeSession(input: any): SessionSummary {
       layer.type !== "noise" &&
       layer.type !== "carrier" &&
       layer.type !== "sample" &&
-      layer.type !== "procedural-ambience"
+      layer.type !== "procedural-ambience" &&
+      layer.type !== "additive" &&
+      layer.type !== "karplus"
     ) {
       beatLayerCount++;
       for (const k of layer.keyframes)

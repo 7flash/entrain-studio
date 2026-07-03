@@ -18,7 +18,12 @@ import {
   looksLikeSbagen,
 } from "@/format/pattern-text";
 import { createAudioEngine } from "@/client/audio-engine";
-import { decodeSessionHash, encodeSessionUrl } from "@/client/session-codec";
+import {
+  decodeSessionHash,
+  decodeSessionFromString,
+  encodeSessionUrl,
+  type SharePayloadInfo,
+} from "@/client/session-codec";
 import { connectAndVerify } from "@/client/wallet";
 
 let session: EntrainSessionV1 = defaultSession();
@@ -28,6 +33,7 @@ let notice = "";
 let exportBusy = false;
 let autosaveTimer: any = null;
 let booting = true;
+let lastShare: SharePayloadInfo | null = null;
 
 const layerTypes: LayerType[] = [
   "binaural",
@@ -38,12 +44,16 @@ const layerTypes: LayerType[] = [
   "noise",
   "sample",
   "procedural-ambience",
+  "additive",
+  "karplus",
 ];
 const isNoBeat = (l: EntrainLayerV1) =>
   l.type === "noise" ||
   l.type === "carrier" ||
   l.type === "sample" ||
-  l.type === "procedural-ambience";
+  l.type === "procedural-ambience" ||
+  l.type === "additive" ||
+  l.type === "karplus";
 const isNoCarrier = (l: EntrainLayerV1) =>
   l.type === "noise" || l.type === "sample" || l.type === "procedural-ambience";
 const uid = () =>
@@ -126,6 +136,12 @@ function App() {
           </button>
           <button className="act" onClick={addProceduralAmbience}>
             + Procedural
+          </button>
+          <button className="act" onClick={addAdditive}>
+            + Additive
+          </button>
+          <button className="act" onClick={addKarplus}>
+            + Pluck
           </button>
           <button className="act" disabled={exportBusy} onClick={exportWav}>
             {exportBusy ? "Rendering…" : "↓ Render WAV"}
@@ -236,6 +252,21 @@ function App() {
               <button className="act primary" onClick={copyShareUrl}>
                 Copy exact private URL
               </button>
+              <button className="act" onClick={copyShareCapsule}>
+                Copy capsule
+              </button>
+              <button className="act" onClick={importShareString}>
+                Import URL/code
+              </button>
+              <button className="act" onClick={makePortableCopy}>
+                Make portable copy
+              </button>
+              <button className="act" onClick={newLocalSession}>
+                New local
+              </button>
+              <button className="act" onClick={clearAutosave}>
+                Clear autosave
+              </button>
               <button className="act" onClick={exportJson}>
                 Export JSON
               </button>
@@ -264,17 +295,27 @@ function App() {
                 />
               </label>
             </div>
+            {lastShare ? (
+              <div className="share-meta mono">
+                <span>checksum {lastShare.digest}</span>
+                <span>{lastShare.encoding}</span>
+                <span>{Math.ceil(lastShare.bytes / 1024)} KB payload</span>
+                <span>
+                  {lastShare.urlSafe ? "URL-safe size" : "use capsule fallback"}
+                </span>
+              </div>
+            ) : null}
             {sessionNeedsLocalFiles(session) ? (
               <p className="small warntext">
                 Local ambience files cannot be embedded in a private URL. Use
-                procedural ambience when the exact same soundtrack must
-                reproduce for a friend with no extra files.
+                procedural ambience or click “Make portable copy” when the exact
+                same soundtrack must reproduce for a friend with no extra files.
               </p>
             ) : (
               <p className="small">
                 This session is portable: all stochastic layers use stored
-                seeds, so friends can reproduce the same generated algorithm
-                from the URL.
+                seeds, and the v2 share checksum verifies the copied algorithm
+                before loading.
               </p>
             )}
           </div>
@@ -482,6 +523,8 @@ function LayerCard({
           </div>
         ) : null}
         {l.type === "procedural-ambience" ? <ProceduralControls l={l} /> : null}
+        {l.type === "additive" ? <AdditiveControls l={l} /> : null}
+        {l.type === "karplus" ? <KarplusControls l={l} /> : null}
         {l.type !== "binaural" ? (
           <div className="field">
             <label>
@@ -616,6 +659,198 @@ function ProceduralControls({ l }: { l: EntrainLayerV1 }) {
           value={String(l.seed || 1337)}
           onInput={(e: any) => {
             l.seed = Number(e.currentTarget.value || 1);
+            repaint(true);
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+function AdditiveControls({ l }: { l: EntrainLayerV1 }) {
+  const partialText = JSON.stringify(
+    l.partials?.length ? l.partials : bowlPartialsUi(),
+  );
+  const env = l.envelope || {
+    attackMs: 1200,
+    decayMs: 2500,
+    sustain: 0.9,
+    releaseMs: 4000,
+  };
+  return (
+    <>
+      <div className="field">
+        <label>Partial preset</label>
+        <select
+          value="custom"
+          onChange={(e: any) => {
+            const v = e.currentTarget.value;
+            if (v === "bowl") l.partials = bowlPartialsUi();
+            if (v === "organ")
+              l.partials = [
+                { ratio: 1, gain: 1 },
+                { ratio: 2, gain: 0.45 },
+                { ratio: 3, gain: 0.25 },
+                { ratio: 4, gain: 0.14 },
+              ];
+            if (v === "glass")
+              l.partials = [
+                { ratio: 1, gain: 1 },
+                { ratio: 2.76, gain: 0.46, decaySec: 22 },
+                { ratio: 5.4, gain: 0.24, decaySec: 18 },
+                { ratio: 8.9, gain: 0.13, decaySec: 14 },
+              ];
+            repaint(true);
+          }}
+        >
+          <option value="custom">custom/current</option>
+          <option value="bowl">singing bowl</option>
+          <option value="organ">organ pad</option>
+          <option value="glass">glass bell</option>
+        </select>
+      </div>
+      <div className="field wide">
+        <label>Partials JSON</label>
+        <textarea
+          rows="3"
+          value={partialText}
+          onChange={(e: any) => {
+            try {
+              l.partials = JSON.parse(e.currentTarget.value);
+              notice = "partials updated";
+            } catch {
+              notice = "partials JSON is invalid";
+            }
+            repaint(true);
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>
+          Attack <b>{env.attackMs} ms</b>
+        </label>
+        <input
+          type="number"
+          min="0"
+          max="30000"
+          step="50"
+          value={String(env.attackMs)}
+          onChange={(e: any) => {
+            l.envelope = {
+              ...env,
+              attackMs: Number(e.currentTarget.value || 0),
+            };
+            repaint(true);
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>
+          Release <b>{env.releaseMs} ms</b>
+        </label>
+        <input
+          type="number"
+          min="0"
+          max="120000"
+          step="100"
+          value={String(env.releaseMs)}
+          onChange={(e: any) => {
+            l.envelope = {
+              ...env,
+              releaseMs: Number(e.currentTarget.value || 0),
+            };
+            repaint(true);
+          }}
+        />
+      </div>
+    </>
+  );
+}
+
+function KarplusControls({ l }: { l: EntrainLayerV1 }) {
+  const cfg = l.karplus || {
+    rateHz: 0.08,
+    decay: 0.996,
+    brightness: 0.55,
+    durationSec: 6,
+  };
+  return (
+    <>
+      <div className="field">
+        <label>Seed</label>
+        <input
+          type="number"
+          min="1"
+          value={String(l.seed || 4242)}
+          onInput={(e: any) => {
+            l.seed = Number(e.currentTarget.value || 1);
+            repaint(true);
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>
+          Pluck rate <b>{cfg.rateHz.toFixed(3)} Hz</b>
+        </label>
+        <input
+          type="range"
+          min="0.005"
+          max="2"
+          step="0.005"
+          value={String(cfg.rateHz)}
+          onInput={(e: any) => {
+            l.karplus = { ...cfg, rateHz: Number(e.currentTarget.value) };
+            repaint(true);
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>
+          Decay <b>{cfg.decay.toFixed(4)}</b>
+        </label>
+        <input
+          type="range"
+          min="0.9"
+          max="0.9999"
+          step="0.0001"
+          value={String(cfg.decay)}
+          onInput={(e: any) => {
+            l.karplus = { ...cfg, decay: Number(e.currentTarget.value) };
+            repaint(true);
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>
+          Brightness <b>{Math.round(cfg.brightness * 100)}%</b>
+        </label>
+        <input
+          type="range"
+          min="0"
+          max="1"
+          step="0.01"
+          value={String(cfg.brightness)}
+          onInput={(e: any) => {
+            l.karplus = { ...cfg, brightness: Number(e.currentTarget.value) };
+            repaint(true);
+          }}
+        />
+      </div>
+      <div className="field">
+        <label>
+          Voice length <b>{cfg.durationSec}s</b>
+        </label>
+        <input
+          type="number"
+          min="1"
+          max="30"
+          step="0.5"
+          value={String(cfg.durationSec)}
+          onChange={(e: any) => {
+            l.karplus = {
+              ...cfg,
+              durationSec: Number(e.currentTarget.value || 6),
+            };
             repaint(true);
           }}
         />
@@ -814,6 +1049,8 @@ function bandName(hz: number) {
 function layerColor(hz: number, type: LayerType) {
   if (type === "noise" || type === "sample" || type === "procedural-ambience")
     return "#5d6d87";
+  if (type === "additive") return "#9be7d8";
+  if (type === "karplus") return "#d7b16a";
   const b = bandName(hz || 10);
   return b === "delta"
     ? "#6b7cf0"
@@ -837,6 +1074,8 @@ function layerTypeLabel(t: LayerType) {
         noise: "Noise bed",
         sample: "Ambience file",
         "procedural-ambience": "Procedural ambience",
+        additive: "Additive drone",
+        karplus: "Karplus pluck",
       } as Record<LayerType, string>
     )[t] || t
   );
@@ -891,6 +1130,10 @@ function describeLayer(l: EntrainLayerV1) {
     return `${l.sampleName || "load a file"} · ${l.sampleLoop?.mode || "native"} loop`;
   if (l.type === "procedural-ambience")
     return `${l.ambienceRecipe || "pink-rain"} · seed ${l.seed || 1337}`;
+  if (l.type === "additive")
+    return `${l.carrierHz || 136.1} Hz base · ${(l.partials || []).length || 3} partials`;
+  if (l.type === "karplus")
+    return `${l.carrierHz || 220} Hz pluck · ${(l.karplus?.rateHz || 0.08).toFixed(3)} Hz rate`;
   if (l.type === "noise") return `${l.noiseColor || "pink"} noise`;
   if (l.type === "carrier") return `${l.carrierHz || 220} Hz carrier`;
   const first = l.keyframes[0]?.beatHz || 10;
@@ -918,7 +1161,7 @@ function ensureTwoKeyframes(l: EntrainLayerV1) {
 function changeType(l: EntrainLayerV1, type: LayerType) {
   l.type = type;
   if (isNoCarrier(l)) l.carrierHz = undefined;
-  else l.carrierHz = l.carrierHz || 220;
+  else l.carrierHz = l.carrierHz || (type === "additive" ? 136.1 : 220);
   if (type === "binaural") {
     l.pan = undefined;
     l.panMotion = undefined;
@@ -937,6 +1180,32 @@ function changeType(l: EntrainLayerV1, type: LayerType) {
       endSec: 0,
       crossfadeSec: 3,
     };
+  }
+  if (type === "additive") {
+    l.partials = l.partials?.length ? l.partials : bowlPartialsUi();
+    l.envelope = l.envelope || {
+      attackMs: 1200,
+      decayMs: 2500,
+      sustain: 0.9,
+      releaseMs: 4000,
+    };
+    l.pan = l.pan || 0;
+  }
+  if (type === "karplus") {
+    l.karplus = l.karplus || {
+      rateHz: 0.08,
+      decay: 0.996,
+      brightness: 0.55,
+      durationSec: 6,
+    };
+    l.envelope = l.envelope || {
+      attackMs: 2,
+      decayMs: 800,
+      sustain: 0,
+      releaseMs: 1200,
+    };
+    l.seed = l.seed || 4242;
+    l.pan = l.pan || 0;
   }
 }
 
@@ -998,6 +1267,47 @@ function addProceduralAmbience() {
   });
   repaint(true);
 }
+function addAdditive() {
+  session.layers.push({
+    id: uid(),
+    type: "additive",
+    carrierHz: 136.1,
+    wave: "sine",
+    partials: bowlPartialsUi(),
+    envelope: { attackMs: 1200, decayMs: 2500, sustain: 0.9, releaseMs: 4000 },
+    pan: 0,
+    panMotion: { rateHz: 0.018, depth: 0.18 },
+    keyframes: [
+      { tMin: 0, gainPct: 20 },
+      { tMin: session.durationMin, gainPct: 20 },
+    ],
+  });
+  repaint(true);
+}
+function addKarplus() {
+  session.layers.push({
+    id: uid(),
+    type: "karplus",
+    carrierHz: 220,
+    seed: Math.floor(Math.random() * 999999) + 1,
+    karplus: { rateHz: 0.08, decay: 0.996, brightness: 0.55, durationSec: 6 },
+    envelope: { attackMs: 2, decayMs: 800, sustain: 0, releaseMs: 1200 },
+    pan: 0,
+    panMotion: { rateHz: 0.012, depth: 0.22 },
+    keyframes: [
+      { tMin: 0, gainPct: 18 },
+      { tMin: session.durationMin, gainPct: 18 },
+    ],
+  });
+  repaint(true);
+}
+function bowlPartialsUi() {
+  return [
+    { ratio: 1, gain: 1, detuneCents: 0 },
+    { ratio: 1.5, gain: 0.5, detuneCents: 2 },
+    { ratio: 2.001, gain: 0.32, detuneCents: -3 },
+  ];
+}
 function duplicateLayer(id: string) {
   const l = session.layers.find((x) => x.id === id);
   if (!l) return;
@@ -1028,7 +1338,9 @@ async function toggle() {
     engine.stop();
     status = "idle";
   } else {
-    await engine.start();
+    await engine.start({
+      loopPattern: (session.loop?.mode || "hold-last") !== "hold-last",
+    });
     status = "running";
     draw();
   }
@@ -1108,12 +1420,87 @@ async function importPatternText(e: any) {
 }
 async function copyShareUrl() {
   const info = await encodeSessionUrl(session);
+  lastShare = info;
   await navigator.clipboard.writeText(info.url).catch(() => {});
   history.replaceState(null, "", info.hash);
   notice = info.portable
-    ? `exact private URL copied · ${info.encoding} · ${Math.ceil(info.bytes / 1024)} KB`
+    ? `exact private URL copied · checksum ${info.digest} · ${Math.ceil(info.bytes / 1024)} KB`
     : `private URL copied, but local audio files must be reloaded · ${Math.ceil(info.bytes / 1024)} KB`;
   if (info.warnings.length) notice += " · " + info.warnings[0];
+  repaint();
+}
+async function copyShareCapsule() {
+  const info = await encodeSessionUrl(session);
+  lastShare = info;
+  await navigator.clipboard.writeText(info.capsule).catch(() => {});
+  notice = `share capsule copied · checksum ${info.digest} · paste with Import URL/code`;
+  if (info.warnings.length) notice += " · " + info.warnings[0];
+  repaint();
+}
+async function importShareString() {
+  const text = prompt(
+    "Paste an ENTRAIN private URL, #es hash, ENTRAIN capsule, or raw session JSON",
+  );
+  if (!text) return;
+  try {
+    const next = await decodeSessionFromString(text);
+    if (!next) throw new Error("No ENTRAIN session found in pasted text.");
+    engine.stop();
+    session = next;
+    engine = createAudioEngine(() => session);
+    lastShare = null;
+    notice = sessionNeedsLocalFiles(session)
+      ? "imported share; reload local ambience files to match sender"
+      : "imported exact shared soundtrack";
+  } catch (e: any) {
+    notice = e.message || "import failed";
+  }
+  repaint(true);
+}
+function makePortableCopy() {
+  let converted = 0;
+  session = sanitizeSession({
+    ...session,
+    name: session.name + " · portable",
+    layers: session.layers.map((l, i) => {
+      if (l.type !== "sample") return l;
+      converted++;
+      return {
+        id: uid(),
+        type: "procedural-ambience",
+        ambienceRecipe: "pink-rain",
+        seed: Math.floor((Date.now() + i * 9973) % 2147483646) || 1337,
+        pan: l.pan || 0,
+        panMotion: l.panMotion,
+        keyframes: JSON.parse(JSON.stringify(l.keyframes || [])),
+      };
+    }),
+  });
+  engine.stop();
+  engine = createAudioEngine(() => session);
+  lastShare = null;
+  notice = converted
+    ? `converted ${converted} local file layer(s) into seeded procedural ambience for exact sharing`
+    : "session is already portable";
+  repaint(true);
+}
+function newLocalSession() {
+  if (
+    !confirm(
+      "Start a new local session? Your current session remains available only if you exported/copied it or autosave has it.",
+    )
+  )
+    return;
+  engine.stop();
+  session = defaultSession();
+  engine = createAudioEngine(() => session);
+  lastShare = null;
+  notice = "new local session started";
+  repaint(true);
+}
+function clearAutosave() {
+  localStorage.removeItem("entrain:studio-autosave");
+  notice = "local autosave cleared";
   repaint();
 }
 

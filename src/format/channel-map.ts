@@ -114,6 +114,45 @@ export function signalMapForLayer(layer: EntrainLayerV1): LayerSignalMap {
       })),
     };
   }
+
+  if (layer.type === "additive") {
+    const base = Number(layer.carrierHz || 136.1);
+    return {
+      id: layer.id,
+      type: layer.type,
+      label: `Additive drone · ${fmtHz(base)} base`,
+      formula:
+        "sum of deterministic sine partials: Σ sin(2π · base · ratio · detune · t) · gain",
+      requiresHeadphones: false,
+      panNote: panNote(layer),
+      bed: `${(layer.partials || []).length || 3} partials`,
+      points: keyframes.map((k) => ({
+        tMin: round(k.tMin),
+        gainPct: round(k.gainPct),
+        gainDb: gainPctToDb(k.gainPct),
+        carrierHz: base,
+      })),
+    };
+  }
+  if (layer.type === "karplus") {
+    const base = Number(layer.carrierHz || 220);
+    return {
+      id: layer.id,
+      type: layer.type,
+      label: `Karplus pluck bed · ${fmtHz(base)}`,
+      formula:
+        "seeded noise burst in a tuned delay line with filtered feedback",
+      requiresHeadphones: false,
+      panNote: panNote(layer),
+      bed: `rate ${layer.karplus?.rateHz || 0.08} Hz · seed ${layer.seed || 4242}`,
+      points: keyframes.map((k) => ({
+        tMin: round(k.tMin),
+        gainPct: round(k.gainPct),
+        gainDb: gainPctToDb(k.gainPct),
+        carrierHz: base,
+      })),
+    };
+  }
   if (layer.type === "noise") {
     return {
       id: layer.id,

@@ -784,6 +784,9 @@ function signalProjection(session: EntrainSessionV1) {
       panMotion: l.panMotion,
       sampleName: l.sampleName,
       sampleLoop: l.sampleLoop,
+      partials: l.partials,
+      envelope: l.envelope,
+      karplus: l.karplus,
       mute: l.mute,
       solo: l.solo,
       keyframes: l.keyframes.map((k) => ({

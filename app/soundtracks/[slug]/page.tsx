@@ -11,6 +11,10 @@ const layerName = (l: any) => {
   if (l.type === "procedural-ambience")
     return `${l.type} · ${l.ambienceRecipe || "pink-rain"} · seed ${l.seed || 1337}`;
   if (l.type === "carrier") return `${l.type} · ${l.carrierHz || 220} Hz`;
+  if (l.type === "additive")
+    return `${l.type} · ${l.carrierHz || 136.1} Hz base · ${(l.partials || []).length || 3} partials`;
+  if (l.type === "karplus")
+    return `${l.type} · ${l.carrierHz || 220} Hz pluck · rate ${l.karplus?.rateHz || 0.08} Hz`;
   const first = l.keyframes?.[0]?.beatHz || 0;
   const last = l.keyframes?.[l.keyframes.length - 1]?.beatHz || first;
   return `${l.type} · ${first}${first !== last ? `→${last}` : ""} Hz · ${l.carrierHz || 220} Hz carrier`;

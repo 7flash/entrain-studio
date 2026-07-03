@@ -13,7 +13,9 @@ const isBed = (l: EntrainLayerV1) =>
   l.type === "noise" ||
   l.type === "sample" ||
   l.type === "procedural-ambience" ||
-  l.type === "carrier";
+  l.type === "carrier" ||
+  l.type === "additive" ||
+  l.type === "karplus";
 const gainDb = (pct: number) =>
   pct <= 0 ? -Infinity : 20 * Math.log10(pct / 100);
 const pctFromDb = (db: number) =>
@@ -44,6 +46,14 @@ export function sessionToPatternText(input: any) {
       );
     else if (l.type === "carrier")
       lines.push(`carrier freq=${l.carrierHz || 220} gain=${g}`);
+    else if (l.type === "additive")
+      lines.push(
+        `additive base=${l.carrierHz || 136.1} gain=${g} partials=${JSON.stringify(l.partials || [])}`,
+      );
+    else if (l.type === "karplus")
+      lines.push(
+        `karplus freq=${l.carrierHz || 220} gain=${g} rate=${l.karplus?.rateHz || 0.08} decay=${l.karplus?.decay || 0.996} brightness=${l.karplus?.brightness ?? 0.55} seed=${l.seed || 4242}`,
+      );
     else {
       const beat =
         first?.beatHz === last?.beatHz
@@ -122,6 +132,40 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
         carrierHz: Number(args.freq || args.carrier || 220),
         keyframes: kfs(durationMin, undefined, pct(args.gain, 20)),
       });
+    else if (cmd === "additive")
+      layers.push({
+        id: uid(),
+        type: "additive",
+        carrierHz: Number(args.base || args.freq || 136.1),
+        partials: parseJson(args.partials) || [
+          { ratio: 1, gain: 1 },
+          { ratio: 1.5, gain: 0.5 },
+          { ratio: 2.001, gain: 0.32 },
+        ],
+        envelope: {
+          attackMs: 1200,
+          decayMs: 2500,
+          sustain: 0.9,
+          releaseMs: 4000,
+        },
+        pan: 0,
+        keyframes: kfs(durationMin, undefined, pct(args.gain, 20)),
+      });
+    else if (cmd === "karplus")
+      layers.push({
+        id: uid(),
+        type: "karplus",
+        carrierHz: Number(args.freq || args.base || 220),
+        seed: Number(args.seed || 4242),
+        karplus: {
+          rateHz: Number(args.rate || 0.08),
+          decay: Number(args.decay || 0.996),
+          brightness: Number(args.brightness || 0.55),
+          durationSec: Number(args.duration || 6),
+        },
+        pan: 0,
+        keyframes: kfs(durationMin, undefined, pct(args.gain, 18)),
+      });
     else if (["binaural", "monaural", "iso-smooth", "iso-hard"].includes(cmd)) {
       const beat = String(args.beat || "10")
         .split("->")
@@ -185,6 +229,13 @@ function unquote(s: string) {
   return String(s || "")
     .trim()
     .replace(/^['"]|['"]$/g, "");
+}
+function parseJson(s: string | undefined) {
+  try {
+    return s ? JSON.parse(s) : undefined;
+  } catch {
+    return undefined;
+  }
 }
 function uid() {
   return (

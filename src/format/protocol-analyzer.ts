@@ -29,7 +29,14 @@ export type ProtocolAnalysis = {
   issues: ProtocolIssue[];
 };
 
-const NO_BEAT = new Set(["noise", "carrier", "sample", "procedural-ambience"]);
+const NO_BEAT = new Set([
+  "noise",
+  "carrier",
+  "sample",
+  "procedural-ambience",
+  "additive",
+  "karplus",
+]);
 const db = (x: number) => (x <= 0 ? -Infinity : 20 * Math.log10(x));
 const max = (xs: number[]) => (xs.length ? Math.max(...xs) : 0);
 
@@ -59,7 +66,9 @@ export function analyzeSession(input: any): ProtocolAnalysis {
       layerPeak *
         (layer.type === "noise" || layer.type === "procedural-ambience"
           ? 0.55
-          : 0.707),
+          : layer.type === "additive" || layer.type === "karplus"
+            ? 0.62
+            : 0.707),
       2,
     );
 
@@ -81,6 +90,14 @@ export function analyzeSession(input: any): ProtocolAnalysis {
         nativeSampleLoops++;
     }
     if (layer.type === "procedural-ambience") proceduralAmbienceLayers++;
+    if (layer.type === "additive" || layer.type === "karplus")
+      push(
+        issues,
+        "info",
+        "algorithmic-instrument",
+        `${layer.type} is treated as a timbre bed; entrainment-specific beat/fusion checks do not apply.`,
+        layer,
+      );
 
     if (!NO_BEAT.has(layer.type)) {
       beatLayerCount++;
