@@ -2,6 +2,7 @@ import { TOKEN_DISPLAY_NAME } from "@/lib/config";
 import { findSoundtrack } from "@/lib/soundtracks";
 import { analyzeSession, analysisBadge } from "@/format/protocol-analyzer";
 import { signalMapForSession, formatSignalPoint } from "@/format/channel-map";
+import { formatSol } from "@/lib/marketplace";
 
 const layerName = (l: any) => {
   if (l.type === "sample")
@@ -29,13 +30,17 @@ export default function SoundtrackDetailPage({ params }: Props) {
       </main>
     );
   }
-  const req = template.minTokens
-    ? `${template.minTokens} ${TOKEN_DISPLAY_NAME} required`
-    : "Free soundtrack";
+  const priceLamports = Number(template.market?.priceLamports || 0);
+  const req =
+    priceLamports > 0
+      ? `${formatSol(priceLamports)} creator access`
+      : template.minTokens
+        ? `${template.minTokens} ${TOKEN_DISPLAY_NAME} required`
+        : "Free soundtrack";
   const analysis = analyzeSession(template.session);
   const lineage = template.lineage;
   const ref = template.referenceMatch;
-  const unlockedPublic = template.minTokens <= 0;
+  const unlockedPublic = template.minTokens <= 0 && priceLamports <= 0;
   const signalMap = unlockedPublic
     ? signalMapForSession(template.session)
     : null;
@@ -48,6 +53,11 @@ export default function SoundtrackDetailPage({ params }: Props) {
           </span>
           <span className={`pill tier-${template.tier}`}>{template.tier}</span>
           <span className="pill">{template.category}</span>
+          {template.publishedByUser ? (
+            <span className="pill">
+              by {template.creatorName || "community creator"}
+            </span>
+          ) : null}
         </div>
         <h1>{template.title}</h1>
         <p>{template.summary}</p>
@@ -66,6 +76,13 @@ export default function SoundtrackDetailPage({ params }: Props) {
           <p className="muted">{template.description}</p>
           {template.unlockNote ? (
             <p className="notice">{template.unlockNote}</p>
+          ) : null}
+          {priceLamports > 0 ? (
+            <p className="notice">
+              <strong>Creator marketplace:</strong> Buy lifetime access for{" "}
+              {formatSol(priceLamports)}. Payment goes directly to the creator
+              payout wallet.
+            </p>
           ) : null}
           <p className="notice good">
             This page can play the database format directly. Unlocking returns

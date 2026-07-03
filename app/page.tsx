@@ -8,6 +8,7 @@ export default function HomePage() {
       <section className="hero">
         <span className="pill">
           ENTRAIN format · browser player · wallet library · token-gated catalog
+          · creator marketplace
         </span>
         <h1>Create your own tracks, or unlock ready brainwave soundtracks.</h1>
         <p>
@@ -25,6 +26,9 @@ export default function HomePage() {
           </a>{" "}
           <a className="btn" href="/library">
             Private library
+          </a>{" "}
+          <a className="btn" href="/creator">
+            Creator dashboard
           </a>
         </p>
         <div id="token-market-root" />
@@ -36,7 +40,9 @@ export default function HomePage() {
           <p className="muted">
             Build a track from scratch, play it, import/export JSON, share it by
             URL hash, and render a WAV without a login. Saving to your private
-            cloud-backed library requires Phantom authorization.
+            cloud-backed library requires Phantom authorization. You can also
+            publish a finished track into the public catalogue and set a creator
+            price.
           </p>
           <p>
             <a className="btn primary" href="/studio?new=1">
@@ -57,6 +63,25 @@ export default function HomePage() {
             </a>
           </p>
         </article>
+      </section>
+
+      <section className="card" style={{ marginTop: "26px" }}>
+        <h3>Creator marketplace</h3>
+        <p className="muted">
+          Creators can publish original ENTRAIN-format soundtracks from Studio.
+          Paid creator tracks are hidden until the listener buys access with
+          Phantom; the SOL payment goes directly to the creator payout wallet,
+          then the server verifies the transaction before revealing the playable
+          pattern JSON.
+        </p>
+        <p>
+          <a className="btn" href="/creator">
+            Creator dashboard
+          </a>{" "}
+          <a className="btn" href="/studio">
+            Publish from Studio
+          </a>
+        </p>
       </section>
 
       <section style={{ marginTop: "26px" }}>

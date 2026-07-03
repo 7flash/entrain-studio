@@ -1,5 +1,6 @@
 import { soundtracksByCategory } from "@/lib/soundtracks";
 import { TOKEN_DISPLAY_NAME } from "@/lib/config";
+import { formatSol } from "@/lib/marketplace";
 
 export default function SoundtracksPage() {
   const groups = soundtracksByCategory();
@@ -48,6 +49,14 @@ export default function SoundtracksPage() {
                       ? `${t.minTokens} ${TOKEN_DISPLAY_NAME}`
                       : "free"}
                   </span>
+                  {Number(t.market?.priceLamports || 0) > 0 ? (
+                    <span className="pill gate">
+                      {formatSol(Number(t.market?.priceLamports || 0))}
+                    </span>
+                  ) : null}
+                  {t.publishedByUser ? (
+                    <span className="pill">creator</span>
+                  ) : null}
                   {t.lineage?.accuracy ? (
                     <span className="pill">{t.lineage.accuracy}</span>
                   ) : null}
@@ -66,7 +75,10 @@ export default function SoundtracksPage() {
                     ? ` · ${t.summaryStats.proceduralAmbienceLayerCount} procedural`
                     : ""}
                 </p>
-                <p className="small">{t.tags.join(" · ")}</p>
+                <p className="small">
+                  {t.creatorName ? `by ${t.creatorName} · ` : ""}
+                  {t.tags.join(" · ")}
+                </p>
                 <div style={{ marginTop: "auto" }}>
                   <a className="btn" href={`/soundtracks/${t.slug}`}>
                     Open

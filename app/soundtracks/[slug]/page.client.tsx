@@ -10,6 +10,7 @@ import {
   getWalletState,
   refreshWalletBalance,
   tokenLabel,
+  paySol,
   type WalletState,
 } from "@/client/wallet";
 
@@ -56,6 +57,13 @@ function App() {
         <div className="tagrow">
           <button className="btn primary" disabled={busy} onClick={unlock}>
             {session ? "Reload access" : "Unlock / load"}
+          </button>
+          <button
+            className="btn"
+            disabled={busy || !!session}
+            onClick={buyThenUnlock}
+          >
+            Buy access
           </button>
           <button
             className="btn"
@@ -318,6 +326,63 @@ function UnlockedSignalMap({ session }: { session: EntrainSessionV1 }) {
   );
 }
 
+async function buyThenUnlock() {
+  busy = true;
+  message = "checking purchase requirements…";
+  paint();
+  try {
+    if (!wallet.authenticated) wallet = await connectAndVerify();
+    const res = await fetch(
+      `/api/access?slug=${encodeURIComponent(slug)}&action=play`,
+    ).then((r) => r.json());
+    if (res.ok) {
+      session = sanitizeSession(res.template.session);
+      loadedTitle = res.template.title || session.name;
+      engine.stop();
+      engine = createAudioEngine(() => session!);
+      message = "already unlocked";
+      return;
+    }
+    if (res.code !== "payment_required")
+      throw new Error(res.error || "not purchasable");
+    await buyAccess(res);
+    await unlock();
+  } catch (e: any) {
+    message = e.message || "purchase failed";
+  } finally {
+    busy = false;
+    paint();
+  }
+}
+
+async function buyAccess(access: any) {
+  if (!wallet.authenticated) wallet = await connectAndVerify();
+  const price = Number(access.priceLamports || 0);
+  const recipient = String(access.payoutWallet || "");
+  if (!price || !recipient) throw new Error("Missing price or payout wallet.");
+  const sol = price / 1_000_000_000;
+  if (
+    !confirm(
+      `Buy access for ${sol} SOL? Payment is sent directly to the creator wallet.`,
+    )
+  )
+    throw new Error("Purchase cancelled");
+  message = "open Phantom to send payment…";
+  paint();
+  const sent = await paySol(recipient, price);
+  message = "confirming on-chain payment…";
+  paint();
+  const confirmed = await fetch("/api/market/purchase", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ slug, txSignature: sent.signature }),
+  }).then((r) => r.json());
+  if (!confirmed.ok)
+    throw new Error(confirmed.error || "payment confirmation failed");
+  message = "purchase confirmed; loading soundtrack…";
+  paint();
+}
+
 async function unlock() {
   busy = true;
   message = "checking access…";
@@ -338,6 +403,12 @@ async function unlock() {
       message = "refreshing token balance…";
       paint();
       wallet = await refreshWalletBalance();
+      res = await fetch(
+        `/api/access?slug=${encodeURIComponent(slug)}&action=play`,
+      ).then((r) => r.json());
+    }
+    if (!res.ok && res.code === "payment_required") {
+      await buyAccess(res);
       res = await fetch(
         `/api/access?slug=${encodeURIComponent(slug)}&action=play`,
       ).then((r) => r.json());

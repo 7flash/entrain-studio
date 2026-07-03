@@ -1,26 +1,17 @@
-import { ADMIN_TOKEN } from "./config";
+import { ADMIN_TOKEN } from './config';
 
 const encoder = new TextEncoder();
 let warnedMissingAdminToken = false;
 
-export function isAdminRequest(
-  req: Request,
-  body?: { adminToken?: string } | null,
-) {
+export function isAdminRequest(req: Request, body?: { adminToken?: string } | null) {
   if (!ADMIN_TOKEN) {
     if (!warnedMissingAdminToken) {
       warnedMissingAdminToken = true;
-      console.warn(
-        "[ENTRAIN] ADMIN_TOKEN is not configured; admin APIs are fail-closed.",
-      );
+      console.warn('[ENTRAIN] ADMIN_TOKEN is not configured; admin APIs are fail-closed.');
     }
     return false;
   }
-  const supplied =
-    req.headers.get("x-admin-token") ||
-    new URL(req.url).searchParams.get("adminToken") ||
-    body?.adminToken ||
-    "";
+  const supplied = req.headers.get('x-admin-token') || new URL(req.url).searchParams.get('adminToken') || body?.adminToken || '';
   return constantTimeEqual(String(supplied), String(ADMIN_TOKEN));
 }
 

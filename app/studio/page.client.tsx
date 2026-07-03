@@ -226,6 +226,9 @@ function App() {
             <button className="act" onClick={saveServer}>
               Save private
             </button>
+            <button className="act" onClick={publishCurrent}>
+              Publish / sell
+            </button>
             <button className="act" onClick={sendAdminDraft}>
               Admin draft
             </button>
@@ -1079,6 +1082,56 @@ async function copyShareUrl() {
     "share URL copied; ambience files still need to be reloaded by the recipient";
   repaint();
 }
+
+async function publishCurrent() {
+  try {
+    const title =
+      prompt("Public soundtrack title", session.name) || session.name;
+    const summary =
+      prompt(
+        "Short catalogue summary",
+        session.description ||
+          session.notes ||
+          "Community-created ENTRAIN soundtrack.",
+      ) || "Community-created ENTRAIN soundtrack.";
+    const priceSolRaw =
+      prompt("Price in SOL for paid access. Use 0 for free.", "0.05") || "0";
+    const priceLamports = Math.max(
+      0,
+      Math.floor(Number(priceSolRaw) * 1_000_000_000),
+    );
+    const creatorName = prompt("Creator display name", "") || "";
+    notice = "connect Phantom to publish…";
+    repaint();
+    await connectAndVerify();
+    const res = await fetch("/api/soundtracks/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title,
+        summary,
+        description: session.description || session.notes || summary,
+        category: "community",
+        tags: ["community", "creator"],
+        session: sanitizeSession(session),
+        priceLamports,
+        creatorName,
+        payoutWallet: undefined,
+        publishNow: true,
+      }),
+    }).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || "publish failed");
+    notice = res.published
+      ? `published to catalogue: /soundtracks/${res.slug}`
+      : `submitted for review: ${res.slug}`;
+    if (res.published && confirm("Open public soundtrack page now?"))
+      location.href = `/soundtracks/${res.slug}`;
+  } catch (e: any) {
+    notice = e.message || "publish failed";
+  }
+  repaint();
+}
+
 function sendAdminDraft() {
   sessionStorage.setItem(
     "entrain:admin-draft",

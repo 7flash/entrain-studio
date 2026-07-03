@@ -18,6 +18,7 @@ export default function RootLayout({ children }: { children: any }) {
               <a href="/soundtracks">Soundtracks</a>
               <a href="/studio">Create</a>
               <a href="/library">Private library</a>
+              <a href="/creator">Creator</a>
               <a href="/admin">Admin</a>
               <span id="wallet-root" />
             </div>
