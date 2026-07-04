@@ -9,6 +9,7 @@ type Body = {
   hostKey?: string;
   clientOffsetMs?: number;
   rttMs?: number;
+  earningActive?: boolean;
 };
 
 export async function POST(req: Request, { params }: Props) {

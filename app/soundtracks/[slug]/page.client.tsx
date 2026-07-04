@@ -159,7 +159,7 @@ function PlayerRuntime() {
 function GroupListenCard({ locked }: { locked: boolean }) {
   const isHost = !!room && !!roomHostKey;
   const share = room
-    ? `${location.origin}/soundtracks/${encodeURIComponent(room.slug || slug)}?room=${encodeURIComponent(room.roomId)}`
+    ? `${location.origin}/rooms/${encodeURIComponent(room.roomId)}`
     : "";
   const signedOffset = room ? roomOffsetSigned(room) : 0;
   const cueing = room?.state === "playing" && signedOffset < -0.05;
@@ -170,6 +170,10 @@ function GroupListenCard({ locked }: { locked: boolean }) {
         Synced rooms calibrate browser clock offset, show listener presence, and
         let the host cue a shared countdown. Audio is still generated locally in
         each browser, so everyone must click Join once.
+      </p>
+      <p className="small">
+        Room rewards: connected Phantom listeners earn internal tokens while the
+        room is playing. Anonymous listeners stay synced but do not earn.
       </p>
       <div className="tagrow" style={{ marginBottom: "8px" }}>
         {room ? (
@@ -219,6 +223,19 @@ function GroupListenCard({ locked }: { locked: boolean }) {
         </div>
       ) : null}
       <div className="tagrow">
+        {!wallet.authenticated ? (
+          <button
+            className="btn"
+            disabled={syncBusy}
+            onClick={connectForRewards}
+          >
+            Connect for rewards
+          </button>
+        ) : (
+          <a className="btn" href="/account">
+            Rewards account
+          </a>
+        )}
         <button
           className="btn"
           disabled={syncBusy || locked}
@@ -327,6 +344,22 @@ function UnlockedSignalMap({ session }: { session: EntrainSessionV1 }) {
       </table>
     </div>
   );
+}
+
+async function connectForRewards() {
+  syncBusy = true;
+  syncMessage = "connecting wallet for room rewards…";
+  paint();
+  try {
+    wallet = await connectAndVerify();
+    syncMessage =
+      "Wallet connected. Keep this tab in the playing room to earn internal rewards.";
+    await heartbeatRoom();
+  } catch (e: any) {
+    syncMessage = e.message || "wallet connect failed";
+  }
+  syncBusy = false;
+  paint();
 }
 
 async function buyThenUnlock() {
@@ -544,7 +577,7 @@ async function createRoom() {
     url.searchParams.set("room", roomId);
     history.replaceState(null, "", url.toString());
     syncMessage =
-      "room created. Copy the room link, have listeners click Join, then use Cue 10s start.";
+      "room created. Open the dedicated room page, share the room link, have listeners click Join, then use Cue 10s start.";
     startRoomPoll();
     await heartbeatRoom();
   } catch (e: any) {
@@ -736,6 +769,7 @@ async function heartbeatRoom() {
           hostKey: roomHostKey,
           clientOffsetMs: Math.round(clockOffsetMs),
           rttMs: Math.round(clockRttMs),
+          earningActive: Boolean(syncFollowing && engine.running),
         }),
       },
     ).then((r) => r.json());
@@ -768,7 +802,7 @@ async function calibrateClock() {
 
 async function copyRoomLink() {
   if (!room) return;
-  const link = `${location.origin}/soundtracks/${encodeURIComponent(room.slug || slug)}?room=${encodeURIComponent(room.roomId)}`;
+  const link = `${location.origin}/rooms/${encodeURIComponent(room.roomId)}`;
   await navigator.clipboard.writeText(link).catch(() => {});
   syncMessage = "room link copied";
   paint();
@@ -899,6 +933,9 @@ function draw() {
 export default async function mount() {
   const root = document.getElementById("soundtrack-player-root")!;
   resetPlayerState(root.dataset.slug || "");
+  wallet = await getWalletState().catch(
+    () => ({ authenticated: false, publicKey: null, balance: 0 }) as any,
+  );
   const params = new URLSearchParams(location.search);
   const initialRoom = (params.get("room") || "").toUpperCase();
   paint();

@@ -143,6 +143,36 @@ export const db = new Database(
       rttMs: z.number().optional(),
       joinedAt: z.number(),
       lastSeenAt: z.number(),
+      rewardCursorAt: z.number().optional(),
+      rewardTotalMicro: z.number().default(0),
+      ...timestamps,
+    }),
+    internalBalances: z.object({
+      publicKey: z.string(),
+      availableMicro: z.number().default(0),
+      lifetimeEarnedMicro: z.number().default(0),
+      lifetimeWithdrawnMicro: z.number().default(0),
+      lastEarnedAt: z.number().optional(),
+      ...timestamps,
+    }),
+    rewardEvents: z.object({
+      eventId: z.string(),
+      publicKey: z.string(),
+      roomId: z.string(),
+      soundtrackSlug: z.string(),
+      amountMicro: z.number(),
+      secondsCredited: z.number(),
+      roomElapsedSec: z.number().default(0),
+      reason: z.string().default("synced-room-listen"),
+      ...timestamps,
+    }),
+    withdrawalRequests: z.object({
+      requestId: z.string(),
+      publicKey: z.string(),
+      destinationWallet: z.string(),
+      amountMicro: z.number(),
+      status: z.string().default("pending"), // pending | paid | rejected
+      note: z.string().optional(),
       ...timestamps,
     }),
   },
@@ -227,6 +257,9 @@ export function sweepExpiredRows(now = Date.now()) {
     for (const row of db.playEvents.select().all() as any[])
       if (Number(row.createdAt || 0) < now - 30 * 24 * 60 * 60_000)
         db.playEvents.delete().where({ id: row.id }).run();
+    for (const row of db.rewardEvents.select().all() as any[])
+      if (Number(row.createdAt || 0) < now - 180 * 24 * 60 * 60_000)
+        db.rewardEvents.delete().where({ eventId: row.eventId }).run();
   } catch (e) {
     console.warn("[ENTRAIN] maintenance sweep failed", e);
   }

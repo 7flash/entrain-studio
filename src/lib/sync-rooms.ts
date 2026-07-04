@@ -1,6 +1,11 @@
 import { db } from "./db";
 import { findSoundtrack } from "./soundtracks";
 import { dbMeasure } from "./measure";
+import {
+  awardRoomListening,
+  rewardConfig,
+  formatRewardAmount,
+} from "./rewards";
 
 const ROOM_TTL_MS = 24 * 60 * 60_000;
 const PRESENCE_TTL_MS = 35_000;
@@ -16,6 +21,7 @@ export type SyncRoomParticipant = {
   lastSeenAt: number;
   clientOffsetMs?: number;
   rttMs?: number;
+  rewardTotalMicro?: number;
 };
 
 export type SyncRoomPublic = {
@@ -32,6 +38,7 @@ export type SyncRoomPublic = {
   hostPresent: boolean;
   participantCount: number;
   participants: SyncRoomParticipant[];
+  reward?: ReturnType<typeof rewardConfig>;
 };
 
 export function createSyncRoom(slug: string, createdBy?: string) {
@@ -121,6 +128,7 @@ export function heartbeatSyncRoom(
     hostKey?: string;
     clientOffsetMs?: number;
     rttMs?: number;
+    earningActive?: boolean;
   },
 ) {
   return dbMeasure.measure.assert("Heartbeat sync room presence", () => {
@@ -132,6 +140,23 @@ export function heartbeatSyncRoom(
       .select()
       .where({ roomId: row.roomId, clientId })
       .first() as any;
+    const joinedAt = existing?.joinedAt || now;
+    let rewardPatch: any = {};
+    if (body.publicKey && body.earningActive) {
+      const reward = awardRoomListening(
+        String(body.publicKey),
+        row,
+        { ...existing, joinedAt },
+        now,
+      );
+      if (reward.amountMicro > 0) {
+        rewardPatch.rewardCursorAt = reward.cursorAt;
+        rewardPatch.rewardTotalMicro =
+          Number(existing?.rewardTotalMicro || 0) + reward.amountMicro;
+      } else if (!existing?.rewardCursorAt) {
+        rewardPatch.rewardCursorAt = now;
+      }
+    }
     const patch = {
       roomId: row.roomId,
       clientId,
@@ -144,8 +169,9 @@ export function heartbeatSyncRoom(
       rttMs: Number.isFinite(Number(body.rttMs))
         ? Number(body.rttMs)
         : undefined,
-      joinedAt: existing?.joinedAt || now,
+      joinedAt,
       lastSeenAt: now,
+      ...rewardPatch,
     };
     if (existing)
       db.syncRoomPresence
@@ -189,6 +215,7 @@ export function toPublic(row: any): SyncRoomPublic {
     hostPresent: participants.some((p) => p.isHost),
     participantCount: participants.length,
     participants,
+    reward: rewardConfig(),
   };
 }
 
@@ -211,6 +238,7 @@ function participantsForRoom(
       clientOffsetMs:
         r.clientOffsetMs === undefined ? undefined : Number(r.clientOffsetMs),
       rttMs: r.rttMs === undefined ? undefined : Number(r.rttMs),
+      rewardTotalMicro: Number(r.rewardTotalMicro || 0),
     }));
 }
 
@@ -232,6 +260,20 @@ function elapsedSec(row: any, now = Date.now()) {
   if (row?.state === "playing" && Number(row.startedAt || 0) > 0)
     return Math.max(0, (now - Number(row.startedAt)) / 1000);
   return Math.max(0, Number(row?.pausedOffsetSec || 0));
+}
+
+export function listSyncRooms() {
+  const now = Date.now();
+  const rows = db.syncRooms.select().all() as any[];
+  return rows
+    .filter((row) => Number(row.expiresAt || 0) >= now)
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, 100)
+    .map((row) => toPublic(row));
+}
+
+export function rewardLabelForMicro(micro?: number) {
+  return formatRewardAmount(Number(micro || 0));
 }
 
 function makeRoomId() {

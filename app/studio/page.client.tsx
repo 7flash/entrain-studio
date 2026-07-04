@@ -27,12 +27,10 @@ import {
   decodeSessionHash,
   decodeSessionFromString,
   encodeSessionUrl,
+  encodeSourceUrl,
   type SharePayloadInfo,
 } from "@/client/session-codec";
-
-// ─── module state ────────────────────────────────────────────────────────────
-// One session, one engine, one selection. The UI is a projection of
-// (session, selectedLayerId, activePointMin); rendering never mutates session.
+import { connectAndVerify } from "@/client/wallet";
 
 let session: EntrainSessionV1 = defaultSession();
 let engine = createAudioEngine(() => session);
@@ -46,14 +44,7 @@ let booting = true;
 let lastShare: SharePayloadInfo | null = null;
 let activePointMin = 0;
 let verifiedCarrierHz: number | null = null;
-
-let selectedLayerId: string | null = null;
-let inspectorTab: "layer" | "session" = "session";
-let paletteOpen = false;
-let menuOpen = false;
-let importText = "";
-let confirmNewArmed = false;
-const glide = { carrierHz: 140, startHz: 10, endHz: 2.5, minutes: 20, gainPct: 20 };
+let coachOpen = true;
 
 const toneMethods: LayerType[] = [
   "carrier",
@@ -68,8 +59,6 @@ const isNoBeat = (l: EntrainLayerV1) => !hasBeat(l.type);
 const isNoCarrier = (l: EntrainLayerV1) => !hasCarrier(l.type);
 const uid = () =>
   crypto.randomUUID?.() || Math.random().toString(36).slice(2, 9);
-const selectedLayer = () =>
-  session.layers.find((l) => l.id === selectedLayerId) || null;
 
 const bandTiles = BANDS.map((b) => ({
   id: b.id,
@@ -87,17 +76,12 @@ const bandTiles = BANDS.map((b) => ({
             : 40,
 }));
 
-// ─── root ────────────────────────────────────────────────────────────────────
-
 function App() {
   const analysis = analyzeSession(session);
   const primary = primaryBeatLayer();
-  const beat = primary
-    ? sampleTimelineSafe(primary, "beatHz", activePointMin)
-    : 0;
-  const band = beat ? bandForHz(beat) : "ambient";
+  const beat = primary?.keyframes?.[0]?.beatHz || 0;
+  const band = beat ? bandName(beat) : "ambient";
   const current = engine.running ? engine.positionSec() : 0;
-  const sel = selectedLayer();
   return (
     <div className="studio-shell">
       <div className="studio-stage">
@@ -122,7 +106,21 @@ function App() {
         </span>
       </div>
 
-      <div className="studio-head">
+      <div className="bands studio-bands" aria-label="Brainwave bands">
+        {bandTiles.map((b) => (
+          <button
+            className={"band " + (band === b.id ? "on" : "")}
+            data-band={b.id}
+            onClick={() => addBandLayer(b.hz)}
+            key={b.id}
+          >
+            <div className="nm">{b.name}</div>
+            <div className="rg">{b.range}</div>
+          </button>
+        ))}
+      </div>
+
+      <div className="studio-command-panel">
         <div>
           <div className="eyebrow">Live console</div>
           <h2>{session.name}</h2>
@@ -130,549 +128,308 @@ function App() {
             {session.durationMin} min · {session.layers.length} layers ·
             estimated peak {analysis.estimatedPeakDb.toFixed(1)} dBFS
           </div>
+          {notice ? <div className="notice-inline mono">{notice}</div> : null}
         </div>
-        <span className="shortcut-help mono">
-          Space start · T tone · P point · S share · E export
-        </span>
-      </div>
-
-      <Transport analysis={analysis} />
-      {notice ? <div className="notice-inline mono">{notice}</div> : null}
-      {paletteOpen ? <LayerPalette /> : null}
-      {menuOpen ? <FileMenu /> : null}
-      {analysis.issues.length ? <AnalyzerStrip analysis={analysis} /> : null}
-
-      {session.layers.length ? (
-        <>
-          <Timeline />
-          <div className="inspector">
-            <div className="inspector-tabs">
-              <button
-                className={"tab " + (inspectorTab === "layer" && sel ? "on" : "")}
-                disabled={!sel}
-                onClick={() => {
-                  inspectorTab = "layer";
-                  repaint();
-                }}
-              >
-                {sel ? layerTypeLabel(sel.type) : "Layer"}
-              </button>
-              <button
-                className={
-                  "tab " + (inspectorTab === "session" || !sel ? "on" : "")
-                }
-                onClick={() => {
-                  inspectorTab = "session";
-                  repaint();
-                }}
-              >
-                Session
-              </button>
-              <span className="mono small inspector-point">
-                editing point {fmtPoint(activePointMin)}
-              </span>
-            </div>
-            {inspectorTab === "layer" && sel ? (
-              <LayerInspector l={sel} />
-            ) : (
-              <SessionInspector />
-            )}
-          </div>
-        </>
-      ) : (
-        <EmptyGuide />
-      )}
-    </div>
-  );
-}
-
-// ─── transport ───────────────────────────────────────────────────────────────
-
-function Transport({
-  analysis,
-}: {
-  analysis: ReturnType<typeof analyzeSession>;
-}) {
-  const meter = analysis.issues.some((i) => i.level === "error")
-    ? "bad"
-    : analysis.mixStatus === "hot"
-      ? "warn"
-      : "ok";
-  return (
-    <div className="transport">
-      <button className="act primary play" onClick={toggle}>
-        {engine.running ? "■ Stop" : "▶ Start"}
-      </button>
-      <span className={"mix-meter mono " + meter}>
-        {analysis.mixStatus} · {analysis.estimatedPeakDb.toFixed(1)} dBFS
-      </span>
-      <span className="transport-spacer" />
-      <button
-        className={"act " + (paletteOpen ? "toggled" : "")}
-        onClick={() => {
-          paletteOpen = !paletteOpen;
-          menuOpen = false;
-          repaint();
-        }}
-      >
-        + Layer
-      </button>
-      <button className="act" onClick={copyShareUrl}>
-        Copy private URL
-      </button>
-      <button className="act" disabled={exportBusy} onClick={exportWav}>
-        {exportBusy ? "Rendering…" : "↓ WAV"}
-      </button>
-      <button
-        className={"act " + (menuOpen ? "toggled" : "")}
-        onClick={() => {
-          menuOpen = !menuOpen;
-          paletteOpen = false;
-          repaint();
-        }}
-        aria-label="More file actions"
-      >
-        ⋯
-      </button>
-    </div>
-  );
-}
-
-// ─── layer palette (single "+ Layer" entry point) ────────────────────────────
-
-const toneAdds: { t: LayerType; d: string }[] = [
-  { t: "carrier", d: "Steady tone. Verify the device before any modulation." },
-  { t: "iso-trap", d: "Crisp clickless pulses. The primary entrainment method." },
-  { t: "iso-smooth", d: "Gentler Hann-shaped pulses for soft sessions." },
-  { t: "iso-hard", d: "Raw square pulses. Maximal contrast, can click." },
-  { t: "monaural", d: "Beats rendered in the signal. Speaker-safe." },
-  { t: "binaural", d: "L/R offset tones. Headphones required." },
-];
-
-function LayerPalette() {
-  return (
-    <div className="palette">
-      <div className="palette-section">
-        <div className="eyebrow">Tones</div>
-        <div className="palette-grid">
-          {toneAdds.map((x) => (
-            <button
-              className="quick-card"
-              key={x.t}
-              onClick={() => addToneLayer(x.t)}
-            >
-              <b>{layerTypeLabel(x.t)}</b>
-              <span>{x.d}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="palette-section">
-        <div className="eyebrow">Texture</div>
-        <div className="palette-grid">
-          <button className="quick-card" onClick={addNoise}>
-            <b>Noise bed</b>
-            <span>White, pink, or brown noise floor.</span>
+        <div className="btnrow studio-actions">
+          <button className="act primary" onClick={toggle}>
+            {engine.running ? "■ Stop" : "▶ Start"}
           </button>
-          <button className="quick-card" onClick={addProceduralAmbience}>
-            <b>Procedural ambience</b>
-            <span>Seeded rain and bowls. Portable in share URLs.</span>
+          <button className="act" onClick={addLayer}>
+            + Tone
           </button>
-          <button className="quick-card" onClick={addAmbience}>
-            <b>Ambience file</b>
-            <span>Local audio loop. Cannot embed in a private URL.</span>
+          <button className="act" onClick={addNoise}>
+            + Noise
           </button>
-          <button className="quick-card" onClick={addAdditive}>
-            <b>Additive drone</b>
-            <span>Bowl, organ, or glass partial stack.</span>
+          <button className="act" onClick={addAmbience}>
+            + Ambience
           </button>
-          <button className="quick-card" onClick={addKarplus}>
-            <b>Karplus pluck</b>
-            <span>Sparse plucked-string voice on a slow clock.</span>
+          <button className="act" onClick={addProceduralAmbience}>
+            + Procedural
           </button>
-        </div>
-      </div>
-      <div className="palette-section">
-        <div className="eyebrow">Band quick add · isochronic trap</div>
-        <div className="palette-bands">
-          {bandTiles.map((b) => (
-            <button
-              className="band"
-              data-band={b.id}
-              key={b.id}
-              onClick={() => addBandLayer(b.hz)}
-            >
-              <div className="nm">{b.name}</div>
-              <div className="rg">{b.range}</div>
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="palette-section">
-        <div className="eyebrow">Protocol replicator · linear glide</div>
-        <div className="glide-form">
-          <div className="field">
-            <label>Carrier Hz</label>
-            <input
-              type="number"
-              min="20"
-              max="2000"
-              value={String(glide.carrierHz)}
-              onInput={(e: any) => {
-                glide.carrierHz = Number(e.currentTarget.value || 140);
-              }}
-            />
-          </div>
-          <div className="field">
-            <label>Start beat</label>
-            <input
-              type="number"
-              min="0"
-              max="45"
-              step="0.1"
-              value={String(glide.startHz)}
-              onInput={(e: any) => {
-                glide.startHz = Number(e.currentTarget.value || 0);
-              }}
-            />
-          </div>
-          <div className="field">
-            <label>End beat</label>
-            <input
-              type="number"
-              min="0"
-              max="45"
-              step="0.1"
-              value={String(glide.endHz)}
-              onInput={(e: any) => {
-                glide.endHz = Number(e.currentTarget.value || 0);
-              }}
-            />
-          </div>
-          <div className="field">
-            <label>Minutes</label>
-            <input
-              type="number"
-              min="1"
-              max="180"
-              value={String(glide.minutes)}
-              onInput={(e: any) => {
-                glide.minutes = Number(e.currentTarget.value || 1);
-              }}
-            />
-          </div>
-          <div className="field">
-            <label>Gain %</label>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              value={String(glide.gainPct)}
-              onInput={(e: any) => {
-                glide.gainPct = Number(e.currentTarget.value || 0);
-              }}
-            />
-          </div>
-          <button className="act" onClick={addGlide}>
-            + Glide layer
+          <button className="act" onClick={addAdditive}>
+            + Additive
           </button>
-        </div>
-        <p className="small">
-          Creates an auditable binaural layer gliding linearly from start to end
-          beat over the given duration.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-// ─── file / share menu (overflow) ────────────────────────────────────────────
-
-function FileMenu() {
-  return (
-    <div className="file-menu">
-      <div className="palette-section">
-        <div className="eyebrow">Share · local-first</div>
-        <p className="small">
-          The URL payload lives after <span className="mono">#</span>, so it is
-          never sent to the server. Play, edit, render, and share anonymously —
-          no wallet required.
-        </p>
-        <div className="menu-grid">
-          <button className="act" onClick={copyShareCapsule}>
-            Copy capsule
+          <button className="act" onClick={addKarplus}>
+            + Pluck
           </button>
-          <button className="act" onClick={exportJson}>
-            Export JSON
+          <button className="act" disabled={exportBusy} onClick={exportWav}>
+            {exportBusy ? "Rendering…" : "↓ Render WAV"}
           </button>
-          <button className="act" onClick={copyAlgorithmJson}>
-            Copy algorithm JSON
-          </button>
-          <button className="act" onClick={copyPatternText}>
-            Copy pattern
-          </button>
-          <button className="act" onClick={copySbagenText}>
-            Copy SBaGen
-          </button>
-          <button className="act" onClick={makePortableCopy}>
-            Make portable copy
-          </button>
-          <label className="act file-act">
-            Import JSON
-            <input
-              type="file"
-              accept=".json,application/json"
-              style={{ display: "none" }}
-              onChange={importJson}
-            />
-          </label>
-          <label className="act file-act">
-            Import pattern/SBaGen
-            <input
-              type="file"
-              accept=".txt,.sbagen,text/plain"
-              style={{ display: "none" }}
-              onChange={importPatternText}
-            />
-          </label>
-          <button
-            className={"act " + (confirmNewArmed ? "warn" : "")}
-            onClick={newLocalSession}
-          >
-            {confirmNewArmed ? "Confirm new session?" : "New local session"}
-          </button>
-          <button className="act" onClick={clearAutosave}>
-            Clear autosave
-          </button>
-          <button className="act" onClick={sendAdminDraft}>
-            Admin draft
-          </button>
-        </div>
-      </div>
-      <div className="palette-section">
-        <div className="eyebrow">Import URL / code</div>
-        <div className="import-form">
-          <textarea
-            rows="2"
-            placeholder="Paste an ENTRAIN private URL, #es hash, capsule, or raw session JSON"
-            value={importText}
-            onInput={(e: any) => {
-              importText = e.currentTarget.value;
-            }}
-          />
-          <button className="act" onClick={importShareText}>
-            Import
-          </button>
-        </div>
-      </div>
-      {lastShare ? (
-        <div className="share-meta mono">
-          <span>checksum {lastShare.digest}</span>
-          <span>{lastShare.encoding}</span>
-          <span>{Math.ceil(lastShare.bytes / 1024)} KB payload</span>
-          <span>
-            {lastShare.urlSafe ? "URL-safe size" : "use capsule fallback"}
+          <span className="shortcut-help mono">
+            Space start · T tone · P point · S share · E export
           </span>
         </div>
-      ) : null}
-      {sessionNeedsLocalFiles(session) ? (
-        <p className="small warntext">
-          Local ambience files cannot be embedded in a private URL. Use “Make
-          portable copy” to convert them to seeded procedural ambience when the
-          exact soundtrack must reproduce for someone else.
-        </p>
-      ) : (
-        <p className="small">
-          This session is portable: stochastic layers use stored seeds and the
-          v2 share checksum verifies the copied algorithm before loading.
-        </p>
-      )}
-    </div>
-  );
-}
+      </div>
 
-// ─── analyzer strip (only when there is something to say) ───────────────────
+      <QuickWorkflow analysis={analysis} />
+      <OperatorCoach analysis={analysis} />
+      <DeviceCheckStrip />
 
-function AnalyzerStrip({
-  analysis,
-}: {
-  analysis: ReturnType<typeof analyzeSession>;
-}) {
-  const shown = analysis.issues.slice(0, 3);
-  return (
-    <div className="analyzer-strip">
-      <span className="mono strip-label">analyzer</span>
-      {shown.map((i) => (
-        <span className={"issue " + i.level} key={i.code + i.message}>
-          <b>{i.level}</b> {i.message}
-        </span>
-      ))}
-      {analysis.issues.length > 3 ? (
-        <span className="issue">+{analysis.issues.length - 3} more</span>
-      ) : null}
-    </div>
-  );
-}
-
-// ─── timeline: the core object, full width ──────────────────────────────────
-
-function Timeline() {
-  const times = stageTimes();
-  const dur = Math.max(0.001, session.durationMin);
-  return (
-    <div className="timeline">
-      <div className="timeline-headrow">
-        <div className="eyebrow">Timeline · values glide between points</div>
-        <div className="timeline-tools">
-          <label className="mono small">
-            point min
+      <div className="studio-workbench">
+        <aside className="studio-side">
+          <div className="eyebrow">Session</div>
+          <div className="field">
+            <label>Session name</label>
             <input
-              type="number"
-              min="0"
-              max={String(session.durationMin)}
-              step="0.25"
-              value={String(activePointMin)}
-              onChange={(e: any) =>
-                moveActivePoint(Number(e.currentTarget.value || 0))
-              }
-            />
-          </label>
-          <button className="act tiny" onClick={addPointFromActive}>
-            + point
-          </button>
-        </div>
-      </div>
-      <div className="timeline-ruler">
-        {times.map((t) => (
-          <button
-            key={t}
-            className={
-              "ruler-tab mono " +
-              (Math.abs(t - activePointMin) < 1e-6 ? "on" : "")
-            }
-            style={{ left: `${Math.min(100, Math.max(0, (t / dur) * 100))}%` }}
-            onClick={() => selectPoint(t)}
-          >
-            {fmtPoint(t)}
-          </button>
-        ))}
-      </div>
-      <div className="timeline-body">
-        <span
-          className="timeline-playhead"
-          id="tl-playhead"
-          style={{
-            left: `${Math.min(100, Math.max(0, (activePointMin / dur) * 100))}%`,
-          }}
-        />
-        {session.layers.map((l, index) => (
-          <TimelineRow l={l} index={index} times={times} dur={dur} key={l.id} />
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function TimelineRow({
-  l,
-  index,
-  times,
-  dur,
-}: {
-  l: EntrainLayerV1;
-  index: number;
-  times: number[];
-  dur: number;
-  key?: string;
-}) {
-  const on = l.id === selectedLayerId;
-  const firstBeat = sampleTimelineSafe(l, "beatHz", activePointMin);
-  const color = layerColor(firstBeat, l.type);
-  return (
-    <div className={"timeline-row " + (on ? "on" : "")}>
-      <div className="row-controls">
-        <span
-          className="layer-mark"
-          style={{ background: color, boxShadow: `0 0 12px ${color}` }}
-        />
-        <button className="row-label" onClick={() => selectLayer(l.id)}>
-          {String(index + 1).padStart(2, "0")} {layerShortLabel(l)}
-        </button>
-        <button
-          className={"act tiny " + (l.mute ? "warn" : "")}
-          onClick={() => {
-            l.mute = !l.mute;
-            repaint(true);
-          }}
-        >
-          M
-        </button>
-        <button
-          className={"act tiny " + (l.solo ? "primary" : "")}
-          onClick={() => {
-            l.solo = !l.solo;
-            repaint(true);
-          }}
-        >
-          S
-        </button>
-      </div>
-      <div className="timeline-track">
-        {times.slice(0, -1).map((t, i) => {
-          const n = times[i + 1];
-          const left = (t / dur) * 100;
-          const width = Math.max(0.6, ((n - t) / dur) * 100);
-          return (
-            <button
-              className="timeline-seg"
-              title={segmentLabel(l, t, n)}
-              key={t + "-" + n}
-              style={{
-                left: `${left}%`,
-                width: `${width}%`,
-                background: layerColor(
-                  sampleTimelineSafe(l, "beatHz", t),
-                  l.type,
-                ),
+              value={session.name}
+              onInput={(e: any) => {
+                session.name = e.currentTarget.value;
+                repaint();
               }}
-              onClick={() => {
-                selectLayer(l.id, false);
-                activePointMin = t;
+            />
+          </div>
+          <div className="field">
+            <label>Description / notes</label>
+            <textarea
+              rows="4"
+              value={session.notes || ""}
+              onInput={(e: any) => {
+                session.notes = e.currentTarget.value;
+                repaint();
+              }}
+            />
+          </div>
+          <div className="two compact-two">
+            <div className="field">
+              <label>Duration minutes</label>
+              <input
+                type="number"
+                min="1"
+                max="180"
+                value={String(session.durationMin)}
+                onInput={(e: any) => {
+                  session.durationMin = Number(e.currentTarget.value || 1);
+                  normalizeTimelines();
+                  repaint(true);
+                }}
+              />
+            </div>
+            <div className="field">
+              <label>Export fade seconds</label>
+              <input
+                type="number"
+                min="0"
+                max="30"
+                step="1"
+                value={String(session.export?.fadeSec ?? 4)}
+                onInput={(e: any) => {
+                  session.export = {
+                    ...(session.export || {}),
+                    fadeSec: Number(e.currentTarget.value || 0),
+                  };
+                  repaint();
+                }}
+              />
+            </div>
+          </div>
+          <div className="field">
+            <label>Sample rate</label>
+            <select
+              value={String(session.export?.sampleRate || 44100)}
+              onChange={(e: any) => {
+                session.export = {
+                  ...(session.export || {}),
+                  sampleRate: Number(e.currentTarget.value),
+                };
                 repaint();
               }}
             >
-              {segmentLabel(l, t, n)}
+              <option value="32000">32 kHz</option>
+              <option value="44100">44.1 kHz</option>
+              <option value="48000">48 kHz</option>
+            </select>
+          </div>
+          <div className="field">
+            <label>Play/export beyond pattern</label>
+            <select
+              value={session.loop?.mode || "hold-last"}
+              onChange={(e: any) => {
+                session.loop = {
+                  ...(session.loop || {}),
+                  mode: e.currentTarget.value,
+                };
+                repaint(true);
+              }}
+            >
+              <option value="hold-last">hold final values</option>
+              <option value="repeat">repeat pattern</option>
+              <option value="crossfade-repeat">crossfade repeat</option>
+            </select>
+          </div>
+          <QuickBuilder />
+          <IntentionSelector />
+          <OperatorGuide />
+          <StudioChecklist analysis={analysis} />
+          <GlobalPointTabs />
+          <div className="studio-share-box">
+            <div className="eyebrow">Protocol replicator</div>
+            <p className="small">
+              Create an auditable linear-glide binaural layer from carrier,
+              start/end beat, duration, and gain.
+            </p>
+            <button className="act" onClick={addProtocolGlide}>
+              + Linear glide layer
             </button>
-          );
-        })}
+          </div>
+          <AnalysisCard analysis={analysis} />
+          <div className="studio-share-box">
+            <div className="eyebrow">No-login studio</div>
+            <p className="small">
+              Play, edit, render WAV, import/export, and share anonymously
+              without connecting a wallet. Phantom is optional and only used to
+              save a private cloud copy to your wallet library. The shared URL
+              stores the source script after <span className="mono">#</span>, so
+              it is not sent to the server. The compiled JSON remains only an
+              advanced runtime cache.
+            </p>
+            <div className="studio-file-actions local-first-actions">
+              <button className="act primary" onClick={copyShareUrl}>
+                Copy source URL
+              </button>
+              <button className="act" onClick={copyShareCapsule}>
+                Copy source capsule
+              </button>
+              <button className="act" onClick={saveServer}>
+                Save to wallet library
+              </button>
+              <button className="act" onClick={importShareString}>
+                Import URL/code
+              </button>
+              <button className="act" onClick={makePortableCopy}>
+                Make portable copy
+              </button>
+              <button className="act" onClick={newLocalSession}>
+                New local
+              </button>
+              <button className="act" onClick={clearAutosave}>
+                Clear autosave
+              </button>
+              <button className="act primary" onClick={copySbagenText}>
+                Copy SBaGen script
+              </button>
+              <button className="act" onClick={copyPatternText}>
+                Copy ENTRAIN script
+              </button>
+              <label className="act file-act">
+                Import SBaGen/script
+                <input
+                  type="file"
+                  accept=".txt,.sbagen,text/plain"
+                  style={{ display: "none" }}
+                  onChange={importPatternText}
+                />
+              </label>
+              <details className="debug-details">
+                <summary>Advanced raw JSON cache</summary>
+                <div className="studio-file-actions">
+                  <button className="act" onClick={exportJson}>
+                    Export compiled JSON
+                  </button>
+                  <button className="act" onClick={copyAlgorithmJson}>
+                    Copy compiled JSON
+                  </button>
+                  <label className="act file-act">
+                    Import compiled JSON
+                    <input
+                      type="file"
+                      accept=".json,application/json"
+                      style={{ display: "none" }}
+                      onChange={importJson}
+                    />
+                  </label>
+                </div>
+              </details>
+            </div>
+            {lastShare ? (
+              <div className="share-meta mono">
+                <span>checksum {lastShare.digest}</span>
+                <span>{lastShare.encoding}</span>
+                <span>{Math.ceil(lastShare.bytes / 1024)} KB payload</span>
+                <span>
+                  {lastShare.urlSafe ? "URL-safe size" : "use capsule fallback"}
+                </span>
+              </div>
+            ) : null}
+            {sessionNeedsLocalFiles(session) ? (
+              <p className="small warntext">
+                Local ambience files cannot be embedded in a private URL. Use
+                procedural ambience or click “Make portable copy” when the exact
+                same soundtrack must reproduce for a friend with no extra files.
+              </p>
+            ) : (
+              <p className="small">
+                This session is portable: all stochastic layers use stored
+                seeds, and the source URL checksum verifies the copied script
+                before loading.
+              </p>
+            )}
+          </div>
+          <div className="studio-share-box">
+            <div className="eyebrow">Publishing mode</div>
+            <p className="small">
+              Public community publishing and paid sales are paused. Save
+              privately with Phantom, share by exact # URL, or send an admin
+              draft for curated catalogue publishing.
+            </p>
+            <div className="studio-file-actions">
+              <button className="act" onClick={saveServer}>
+                Save to wallet library
+              </button>
+              <button className="act" onClick={sendAdminDraft}>
+                Admin draft
+              </button>
+            </div>
+          </div>
+        </aside>
+
+        <section className="studio-layers">
+          <div className="layers-title">
+            <div>
+              <div className="eyebrow">Layers</div>
+              <h2>Signal stack</h2>
+            </div>
+            <div className="small">
+              mute / solo / duplicate / edit each layer
+            </div>
+          </div>
+          {session.layers.length ? (
+            session.layers.map((l, index) => (
+              <LayerCard l={l} index={index} key={l.id} />
+            ))
+          ) : (
+            <EmptyStudioState />
+          )}
+        </section>
       </div>
     </div>
   );
 }
 
-// ─── inspector: edits (selected layer, active point) ────────────────────────
-
-function LayerInspector({ l }: { l: EntrainLayerV1 }) {
-  const index = session.layers.findIndex((x) => x.id === l.id);
+function LayerCard({
+  l,
+  index,
+}: {
+  l: EntrainLayerV1;
+  index: number;
+  key?: string;
+}) {
   const missingSample = l.type === "sample" && !engine.hasSample(l.id);
-  const carrierNow = Math.round(
-    sampleTimelineSafe(l, "carrierHz", activePointMin),
-  );
-  const beatNow = sampleTimelineSafe(l, "beatHz", activePointMin);
-  const gainNow = Math.round(sampleTimelineSafe(l, "gainPct", activePointMin));
+  const point = ensureLayerPoint(l, activePointMin);
+  const firstBeat = point.beatHz || l.keyframes[0]?.beatHz || 0;
+  const color = layerColor(firstBeat, l.type);
   return (
-    <div className={"layer-pane layer-" + l.type}>
-      <div className="inspector-head">
+    <div className={"studio-layer layer-" + l.type}>
+      <div className="studio-layer-head">
+        <div
+          className="layer-mark"
+          style={{ background: color, boxShadow: `0 0 18px ${color}` }}
+        />
         <div>
           <div className="layer-title">
             {String(index + 1).padStart(2, "0")} · {layerTypeLabel(l.type)}
           </div>
           <div className="layer-sub mono">
-            {describeLayerAtPoint(l, {
-              carrierHz: carrierNow,
-              beatHz: beatNow,
-              gainPct: gainNow,
-            })}
+            point {activePointMin}m · {describeLayerAtPoint(l, point)}
             {missingSample ? " · file not loaded" : ""}
           </div>
         </div>
@@ -701,45 +458,28 @@ function LayerInspector({ l }: { l: EntrainLayerV1 }) {
           <button className="act tiny" onClick={() => duplicateLayer(l.id)}>
             Dup
           </button>
-          {l.type === "carrier" ? (
-            <button className="act tiny" onClick={() => convertToTrap(l)}>
-              → iso trap
-            </button>
-          ) : null}
           <button className="act tiny warn" onClick={() => removeLayer(l.id)}>
             ✕
           </button>
         </div>
       </div>
-
       <div className="layer-controls-grid primary-layer-controls">
         {!isNoCarrier(l) ? (
           <div className="field">
             <label>
-              Carrier frequency <b>{carrierNow} Hz</b>
+              Carrier frequency{" "}
+              <b>{point.carrierHz || l.carrierHz || 220} Hz</b>
             </label>
             <input
               type="range"
               min="40"
               max="1200"
               step="1"
-              value={String(carrierNow)}
-              onInput={(e: any) =>
-                setPointCarrier(l, Number(e.currentTarget.value))
-              }
+              value={String(point.carrierHz || l.carrierHz || 220)}
+              onInput={(e: any) => {
+                setPointCarrier(l, Number(e.currentTarget.value));
+              }}
             />
-            <span className="mono small carrier-verify">
-              {verifiedCarrierHz === carrierNow ? (
-                <>verified steady on this device</>
-              ) : (
-                <button
-                  className="act tiny ghostlink"
-                  onClick={() => markLayerSteady(l)}
-                >
-                  mark {carrierNow} Hz steady
-                </button>
-              )}
-            </span>
           </div>
         ) : null}
         {isToneMethod(l.type) ? (
@@ -749,6 +489,7 @@ function LayerInspector({ l }: { l: EntrainLayerV1 }) {
               value={l.type}
               onChange={(e: any) => {
                 changeType(l, e.currentTarget.value as LayerType);
+                ensureLayerPoint(l, activePointMin);
                 repaint(true);
               }}
             >
@@ -760,23 +501,22 @@ function LayerInspector({ l }: { l: EntrainLayerV1 }) {
             </select>
           </div>
         ) : (
-          <div className="field">
+          <div className="field layer-fixed-type">
             <label>Layer type</label>
             <div className="fixed-type-pill">{layerTypeLabel(l.type)}</div>
           </div>
         )}
         <div className="field">
           <label>
-            Gain at point <b>{gainNow}%</b>
+            Gain at point <b>{point.gainPct || 0}%</b>
           </label>
           <input
             type="range"
             min="0"
             max="100"
-            value={String(gainNow)}
+            value={String(point.gainPct || 0)}
             onInput={(e: any) => {
-              const p = ensureLayerPoint(l, activePointMin);
-              p.gainPct = Number(e.currentTarget.value);
+              point.gainPct = Number(e.currentTarget.value);
               repaint(true);
             }}
           />
@@ -784,33 +524,30 @@ function LayerInspector({ l }: { l: EntrainLayerV1 }) {
         {!isNoBeat(l) ? (
           <div className="field">
             <label>
-              Beat Hz <b>{fmtNum(beatNow)} Hz</b>
+              Beat Hz <b>{point.beatHz ?? 10} Hz</b>
             </label>
             <input
               type="range"
               step="0.1"
               min="0"
               max="45"
-              value={String(beatNow)}
+              value={String(point.beatHz ?? 10)}
               onInput={(e: any) => {
-                const p = ensureLayerPoint(l, activePointMin);
-                p.beatHz = Number(e.currentTarget.value);
+                point.beatHz = Number(e.currentTarget.value);
                 repaint(true);
               }}
             />
           </div>
         ) : null}
       </div>
-
-      <LayerHealth l={l} carrier={carrierNow} beat={beatNow} />
+      <LayerHealth l={l} point={point} />
       {!isNoBeat(l) ? (
         <div className="operator-hint small">
-          Beat Hz is the amplitude-modulation cycle rate, not pitch. Start low
-          and increase until separate pulses are still distinguishable; if the
-          pulses smear into one buzz, back down.
+          Beat Hz is the amplitude-modulation cycle rate. Start low and increase
+          until separate pulses are still distinguishable; if the pulses smear
+          into one buzz, back down.
         </div>
       ) : null}
-
       <details className="advanced-layer">
         <summary>Advanced layer details</summary>
         <div className="layer-controls-grid">
@@ -956,127 +693,76 @@ function LayerInspector({ l }: { l: EntrainLayerV1 }) {
   );
 }
 
-function SessionInspector() {
+function QuickWorkflow({
+  analysis,
+}: {
+  analysis: ReturnType<typeof analyzeSession>;
+}) {
+  const phase = workflowPhase();
   return (
-    <div className="session-pane">
-      <div className="layer-controls-grid">
-        <div className="field">
-          <label>Session name</label>
-          <input
-            value={session.name}
-            onInput={(e: any) => {
-              session.name = e.currentTarget.value;
-              repaint();
-            }}
-          />
-        </div>
-        <div className="field">
-          <label>Duration minutes</label>
-          <input
-            type="number"
-            min="1"
-            max="180"
-            value={String(session.durationMin)}
-            onInput={(e: any) => {
-              session.durationMin = Number(e.currentTarget.value || 1);
-              normalizeTimelines();
-              repaint(true);
-            }}
-          />
-        </div>
-        <div className="field">
-          <label>Export fade seconds</label>
-          <input
-            type="number"
-            min="0"
-            max="30"
-            step="1"
-            value={String(session.export?.fadeSec ?? 4)}
-            onInput={(e: any) => {
-              session.export = {
-                ...(session.export || {}),
-                fadeSec: Number(e.currentTarget.value || 0),
-              };
-              repaint();
-            }}
-          />
-        </div>
-        <div className="field">
-          <label>Sample rate</label>
-          <select
-            value={String(session.export?.sampleRate || 44100)}
-            onChange={(e: any) => {
-              session.export = {
-                ...(session.export || {}),
-                sampleRate: Number(e.currentTarget.value),
-              };
-              repaint();
-            }}
-          >
-            <option value="32000">32 kHz</option>
-            <option value="44100">44.1 kHz</option>
-            <option value="48000">48 kHz</option>
-          </select>
-        </div>
-        <div className="field">
-          <label>Play/export beyond pattern</label>
-          <select
-            value={session.loop?.mode || "hold-last"}
-            onChange={(e: any) => {
-              session.loop = {
-                ...(session.loop || {}),
-                mode: e.currentTarget.value,
-              };
-              repaint(true);
-            }}
-          >
-            <option value="hold-last">hold final values</option>
-            <option value="repeat">repeat pattern</option>
-            <option value="crossfade-repeat">crossfade repeat</option>
-          </select>
-        </div>
-        <div className="field wide">
-          <label>Description / notes</label>
-          <textarea
-            rows="3"
-            value={session.notes || ""}
-            onInput={(e: any) => {
-              session.notes = e.currentTarget.value;
-              repaint();
-            }}
-          />
+    <div className="ux-workflow">
+      <div
+        className={
+          "ux-step " +
+          (phase === "carrier" ? "on" : phase === "blank" ? "next" : "done")
+        }
+      >
+        <span className="ux-step-num">1</span>
+        <div>
+          <b>Carrier check</b>
+          <span>choose a steady tone on the real speakers/headphones</span>
         </div>
       </div>
-      <div className="session-meta mono small">
-        {verifiedCarrierHz ? (
-          <>
-            verified carrier {verifiedCarrierHz} Hz on this device ·{" "}
-            <button className="act tiny ghostlink" onClick={clearVerifiedCarrier}>
-              clear
-            </button>
-          </>
-        ) : (
-          "no carrier marked steady on this device yet"
-        )}
+      <div
+        className={
+          "ux-step " +
+          (phase === "pulse"
+            ? "on"
+            : phase === "blank" || phase === "carrier"
+              ? "next"
+              : "done")
+        }
+      >
+        <span className="ux-step-num">2</span>
+        <div>
+          <b>Pulse threshold</b>
+          <span>switch to iso trap/smooth and tune beat Hz</span>
+        </div>
+      </div>
+      <div
+        className={
+          "ux-step " +
+          (phase === "timeline" ? "on" : phase === "ready" ? "done" : "next")
+        }
+      >
+        <span className="ux-step-num">3</span>
+        <div>
+          <b>Arc & export</b>
+          <span>clone point tabs, analyze, share or render</span>
+        </div>
+      </div>
+      <div
+        className={
+          "ux-meter " +
+          (analysis.issues.some((i) => i.level === "error")
+            ? "bad"
+            : analysis.mixStatus === "hot"
+              ? "warn"
+              : "ok")
+        }
+      >
+        <b>{analysis.mixStatus}</b>
+        <span>{analysis.estimatedPeakDb.toFixed(1)} dBFS</span>
       </div>
     </div>
   );
 }
 
-// ─── empty state: the only place guidance lives ──────────────────────────────
-
-function EmptyGuide() {
+function QuickBuilder() {
   return (
-    <div className="empty-studio">
-      <div className="empty-orb" />
-      <h2>Build from a steady carrier.</h2>
-      <p className="small">
-        The reliable operator workflow is carrier first, modulation second,
-        timeline third. Add a plain carrier, listen for unwanted speaker
-        beating on the exact playback device you will use, then switch it to
-        isochronic trap and tune the beat.
-      </p>
-      <div className="quick-grid starters">
+    <div className="quick-builder">
+      <div className="eyebrow">Start here</div>
+      <div className="quick-grid">
         <button className="quick-card" onClick={() => applyStarter("carrier")}>
           <b>Carrier check</b>
           <span>One plain tone at 220 Hz. Verify no speaker beating.</span>
@@ -1086,82 +772,49 @@ function EmptyGuide() {
           onClick={() => applyStarter("countable")}
         >
           <b>Countable pulses</b>
-          <span>Iso trap at 6 Hz. Separate-pulse focus drill.</span>
+          <span>Iso trap at 6 Hz. Best for separate-pulse focus.</span>
         </button>
         <button className="quick-card" onClick={() => applyStarter("buzz")}>
           <b>Focus buzz</b>
-          <span>Iso trap at 14 Hz. Fused SMR/beta texture.</span>
+          <span>Iso trap at 14 Hz. Fused SMR/beta style.</span>
         </button>
         <button className="quick-card" onClick={() => applyStarter("descent")}>
           <b>Descent arc</b>
           <span>10 → 6 → 3 Hz with a portable ambience bed.</span>
         </button>
       </div>
-      <div className="device-row">
-        <span className="small">Device sound check, plain carriers:</span>
-        {[180, 220, 280, 340].map((hz) => (
-          <button
-            className={"act tiny " + (verifiedCarrierHz === hz ? "primary" : "")}
-            key={hz}
-            onClick={() => loadCarrierCheck(hz)}
-          >
-            {hz} Hz
-          </button>
-        ))}
-        {verifiedCarrierHz ? (
-          <span className="mono small">verified {verifiedCarrierHz} Hz</span>
-        ) : null}
-      </div>
-      <details className="operator-guide">
-        <summary>Operator workflow</summary>
-        <ol className="small">
-          <li>
-            Add one tone layer with method <b>Plain carrier</b> and pick the
-            carrier frequency first.
-          </li>
-          <li>
-            Listen on the actual device. Laptop speakers often create
-            mechanical beating below ~210 Hz — choose a carrier that sounds
-            steady before adding modulation.
-          </li>
-          <li>
-            Switch method to <b>Isochronic trap</b> for crisp clickless pulses.
-            Beat Hz is volume pulses per second, not pitch.
-          </li>
-          <li>
-            Countable pulses live around 4–8 Hz; by ~10–18 Hz they fuse into a
-            rough focus buzz — useful, but no longer a beat-counting drill.
-          </li>
-          <li>
-            Use <b>+ point</b> on the timeline to clone the whole stack at a
-            later minute, then change values there; ENTRAIN interpolates
-            continuously between points.
-          </li>
-          <li>
-            One intention per track: a pulse-counting drill, an SMR/beta focus
-            buzz, and a Holosync-style descent are different protocols.
-          </li>
-        </ol>
-      </details>
-      <p className="small mono">
-        local-first · no wallet · autosaves to this browser · Space start · T
-        tone · P point · S share · E export
-      </p>
     </div>
   );
 }
 
-// ─── small components ────────────────────────────────────────────────────────
+function EmptyStudioState() {
+  return (
+    <div className="empty-studio">
+      <div className="empty-orb" />
+      <h2>Build from a steady carrier.</h2>
+      <p className="small">
+        The fastest reliable workflow is carrier first, modulation second,
+        timeline third. Add a plain carrier, listen for unwanted speaker
+        beating, then switch to isochronic trap or smooth.
+      </p>
+      <div className="btnrow">
+        <button className="act primary" onClick={() => applyStarter("carrier")}>
+          Start carrier check
+        </button>
+        <button className="act" onClick={() => applyStarter("countable")}>
+          Start countable pulses
+        </button>
+        <button className="act" onClick={() => applyStarter("descent")}>
+          Start descent arc
+        </button>
+      </div>
+    </div>
+  );
+}
 
-function LayerHealth({
-  l,
-  carrier,
-  beat,
-}: {
-  l: EntrainLayerV1;
-  carrier: number;
-  beat: number;
-}) {
+function LayerHealth({ l, point }: { l: EntrainLayerV1; point: any }) {
+  const beat = Number(point.beatHz || 0);
+  const carrier = Number(point.carrierHz || l.carrierHz || 0);
   const tags: string[] = [];
   if (l.type === "carrier" && carrier && carrier < 210)
     tags.push("check speaker beating");
@@ -1180,6 +833,528 @@ function LayerHealth({
       {tags.map((t) => (
         <span key={t}>{t}</span>
       ))}
+    </div>
+  );
+}
+
+function OperatorCoach({
+  analysis,
+}: {
+  analysis: ReturnType<typeof analyzeSession>;
+}) {
+  const plan = coachPlan(analysis);
+  return (
+    <div className={"operator-coach " + (coachOpen ? "open" : "closed")}>
+      <div className="coach-main">
+        <div className="coach-orb" />
+        <div>
+          <div className="eyebrow">Operator coach</div>
+          <h3>{plan.title}</h3>
+          <p className="small">{plan.body}</p>
+        </div>
+      </div>
+      <div className="coach-actions">
+        {plan.actions.map((a) => (
+          <button
+            className={"act " + (a.primary ? "primary" : "")}
+            key={a.label}
+            onClick={a.fn}
+          >
+            {a.label}
+          </button>
+        ))}
+        <button
+          className="act ghost"
+          onClick={() => {
+            coachOpen = !coachOpen;
+            repaint();
+          }}
+        >
+          {coachOpen ? "Hide" : "Show"}
+        </button>
+      </div>
+      {coachOpen ? <div className="coach-micro mono">{plan.micro}</div> : null}
+    </div>
+  );
+}
+
+function coachPlan(analysis: ReturnType<typeof analyzeSession>) {
+  const pulse = session.layers.find((l) => !isNoBeat(l));
+  const carrier = session.layers.find((l) => l.type === "carrier");
+  const portable = !sessionNeedsLocalFiles(session);
+  if (!session.layers.length)
+    return {
+      title: "Start from one steady tone.",
+      body: "Build the track like an operator: verify the playback device first, then add pulse modulation, then create a timeline arc.",
+      micro:
+        "No wallet required for creation; Phantom is optional for private library saves.",
+      actions: [
+        {
+          label: "Carrier check",
+          primary: true,
+          fn: () => applyStarter("carrier"),
+        },
+        { label: "Countable pulses", fn: () => applyStarter("countable") },
+        { label: "Descent arc", fn: () => applyStarter("descent") },
+      ],
+    };
+  if (carrier && !pulse)
+    return {
+      title: "Verify the carrier before modulation.",
+      body: "Listen for unwanted beating or rattling. If it is steady, mark it verified and then switch into isochronic trap.",
+      micro: `Current carrier: ${activeCarrierHz() || 0} Hz · verified: ${verifiedCarrierHz ? verifiedCarrierHz + " Hz" : "not yet"}`,
+      actions: [
+        {
+          label: "Mark carrier steady",
+          primary: true,
+          fn: markCurrentCarrierSteady,
+        },
+        { label: "Convert to iso trap", fn: convertFirstCarrierToTrap },
+        { label: "Try 280 Hz", fn: () => loadCarrierCheck(280) },
+      ],
+    };
+  if (pulse && stageTimes().length <= 2)
+    return {
+      title: "Choose the pulse intention.",
+      body: "For countable focus keep the beat around 4–8 Hz. For a fused focus buzz use roughly 12–18 Hz. For a descent, clone timeline points and step the beat downward.",
+      micro: `Active pulse: ${fmtNum(sampleTimelineSafe(pulse, "beatHz", activePointMin))} Hz · ${pulse.type}`,
+      actions: [
+        {
+          label: "Countable 6 Hz",
+          primary: true,
+          fn: () => applyIntention("countable"),
+        },
+        { label: "Focus buzz 14 Hz", fn: () => applyIntention("buzz") },
+        { label: "Clone next point", fn: quickClonePoint },
+      ],
+    };
+  if (!portable)
+    return {
+      title: "Make the share portable.",
+      body: "This session contains local audio files. They cannot live inside a # URL. Convert them to seeded procedural ambience before sharing anonymously.",
+      micro:
+        "Private share URLs only encode the algorithm and deterministic seeds, not local files.",
+      actions: [
+        { label: "Make portable copy", primary: true, fn: makePortableCopy },
+        { label: "Copy SBaGen script", fn: copySbagenText },
+      ],
+    };
+  if (analysis.issues.some((i) => i.level === "error"))
+    return {
+      title: "Fix analyzer errors before sharing widely.",
+      body: "The protocol analyzer found a hard issue. Open the analyzer card and adjust the layer that triggered it.",
+      micro: `${analysis.issues.filter((i) => i.level === "error").length} error(s) · ${analysis.estimatedPeakDb.toFixed(1)} dBFS estimated peak`,
+      actions: [
+        { label: "Copy SBaGen script", fn: copySbagenText },
+        { label: "Render WAV anyway", fn: () => void exportWav() },
+      ],
+    };
+  return {
+    title: "Ready to audition, share, or export.",
+    body: "The stack has a timeline, is portable, and has no blocking analyzer issues. Use private URL for anonymous sharing or render a WAV locally.",
+    micro: `${session.layers.length} layers · ${stageTimes().length} points · ${analysis.estimatedPeakDb.toFixed(1)} dBFS estimated peak`,
+    actions: [
+      { label: "Copy source URL", primary: true, fn: copyShareUrl },
+      { label: "Render WAV", fn: () => void exportWav() },
+      {
+        label: "Audition primary",
+        fn: () => {
+          const p = primaryBeatLayer();
+          if (p) auditionLayer(p.id);
+        },
+      },
+    ],
+  };
+}
+
+function DeviceCheckStrip() {
+  const options = [180, 220, 280, 340];
+  const current = activeCarrierHz();
+  return (
+    <div className="device-check-strip device-calibration">
+      <div>
+        <b>Device sound check</b>
+        <span>
+          Verify plain carrier steadiness on the exact speaker/headphone path.
+          Laptop speakers can create false beating at low carriers.
+        </span>
+        {verifiedCarrierHz ? (
+          <em className="mono">verified carrier: {verifiedCarrierHz} Hz</em>
+        ) : (
+          <em className="mono">no carrier marked steady yet</em>
+        )}
+      </div>
+      <div className="device-check-buttons">
+        {options.map((hz) => (
+          <button
+            className={
+              "act tiny " + (verifiedCarrierHz === hz ? "primary" : "")
+            }
+            key={hz}
+            onClick={() => loadCarrierCheck(hz)}
+          >
+            {hz} Hz
+          </button>
+        ))}
+        <button
+          className="act tiny"
+          disabled={!current}
+          onClick={markCurrentCarrierSteady}
+        >
+          Mark {current || "current"} steady
+        </button>
+        <button className="act tiny ghost" onClick={clearVerifiedCarrier}>
+          Clear
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function StudioChecklist({
+  analysis,
+}: {
+  analysis: ReturnType<typeof analyzeSession>;
+}) {
+  const hasCarrierLayer = session.layers.some((l) => l.type === "carrier");
+  const hasPulseLayer = session.layers.some((l) => !isNoBeat(l));
+  const hasPointArc = stageTimes().length > 2;
+  const portable = !sessionNeedsLocalFiles(session);
+  const ok = !analysis.issues.some((i) => i.level === "error");
+  const rows = [
+    {
+      label: "Carrier verified first",
+      done: hasCarrierLayer || hasPulseLayer,
+      hint: "Start from a plain carrier before adding pulse modulation.",
+    },
+    {
+      label: "Pulse intention chosen",
+      done: hasPulseLayer,
+      hint: "Countable theta pulses, focus buzz, or descent arc.",
+    },
+    {
+      label: "Timeline arc exists",
+      done: hasPointArc || session.layers.length > 0,
+      hint: "Use point tabs when the track should evolve.",
+    },
+    {
+      label: "Portable share ready",
+      done: portable,
+      hint: "Sample files must be converted or reloaded by friends.",
+    },
+    {
+      label: "Analyzer clean",
+      done: ok,
+      hint: "Fix blocking warnings before saving or sharing widely.",
+    },
+  ];
+  return (
+    <div className="studio-checklist">
+      <div className="eyebrow">Build checklist</div>
+      {rows.map((r) => (
+        <div className={"check-row " + (r.done ? "done" : "")} key={r.label}>
+          <span>{r.done ? "✓" : "·"}</span>
+          <div>
+            <b>{r.label}</b>
+            <em>{r.hint}</em>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function IntentionSelector() {
+  const pulse = session.layers.find((l) => !isNoBeat(l));
+  return (
+    <div className="intention-selector">
+      <div className="eyebrow">Pulse intention</div>
+      <button
+        className="intent-card"
+        onClick={() => applyIntention("countable")}
+      >
+        <b>Countable pulse drill</b>
+        <span>4–8 Hz, discrete pulses, operator tracks each beat.</span>
+      </button>
+      <button className="intent-card" onClick={() => applyIntention("buzz")}>
+        <b>Fused focus buzz</b>
+        <span>12–18 Hz, pulses merge into a rough steady focus texture.</span>
+      </button>
+      <button className="intent-card" onClick={() => applyIntention("descent")}>
+        <b>Downshift / descent arc</b>
+        <span>
+          Start alpha and glide down toward theta/delta over timeline points.
+        </span>
+      </button>
+      {pulse ? (
+        <p className="small mono">
+          active pulse layer: {layerTypeLabel(pulse.type)} ·{" "}
+          {fmtNum(sampleTimelineSafe(pulse, "beatHz", activePointMin))} Hz
+        </p>
+      ) : (
+        <p className="small">
+          Choose an intention to add or convert the first tone layer.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TimelineMap() {
+  const times = stageTimes();
+  const dur = Math.max(0.001, session.durationMin);
+  const visible = session.layers.slice(0, 8);
+  return (
+    <div className="timeline-map">
+      <div className="timeline-ruler">
+        {times.map((t) => (
+          <span
+            key={t}
+            className={Math.abs(t - activePointMin) < 1e-6 ? "on" : ""}
+            style={{ left: `${Math.min(100, Math.max(0, (t / dur) * 100))}%` }}
+          >
+            {fmtPoint(t)}
+          </span>
+        ))}
+      </div>
+      <div className="timeline-canvas">
+        <span
+          className="timeline-playhead"
+          style={{
+            left: `${Math.min(100, Math.max(0, (activePointMin / dur) * 100))}%`,
+          }}
+        />
+        {visible.map((l) => (
+          <div className="timeline-row" key={l.id}>
+            <label>{layerShortLabel(l)}</label>
+            <div className="timeline-track">
+              {times.slice(0, -1).map((t, i) => {
+                const n = times[i + 1];
+                const left = (t / dur) * 100;
+                const width = Math.max(0.6, ((n - t) / dur) * 100);
+                return (
+                  <span
+                    className="timeline-seg"
+                    title={segmentLabel(l, t, n)}
+                    key={t + "-" + n}
+                    style={{
+                      left: `${left}%`,
+                      width: `${width}%`,
+                      background: layerColor(
+                        sampleTimelineSafe(l, "beatHz", t),
+                        l.type,
+                      ),
+                    }}
+                  >
+                    {segmentLabel(l, t, n)}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {session.layers.length > visible.length ? (
+          <div className="timeline-more small">
+            + {session.layers.length - visible.length} more layer(s)
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function OperatorGuide() {
+  return (
+    <details className="operator-guide" open>
+      <summary>Operator workflow</summary>
+      <ol className="small">
+        <li>
+          Start blank. Add one tone layer. Pick a carrier frequency first with
+          method set to <b>Plain carrier</b>.
+        </li>
+        <li>
+          Listen on the actual device you will use. Laptop speakers often create
+          mechanical beating below ~210 Hz. Choose a carrier that sounds steady
+          before adding modulation.
+        </li>
+        <li>
+          Switch method to <b>Isochronic trap</b> for crisp clickless pulses, or{" "}
+          <b>Isochronic smooth</b> for a gentler Hann-shaped pulse. Beat Hz is
+          volume pulses per second, not pitch.
+        </li>
+        <li>
+          Start near 0 Hz, then increase slowly until you can still distinguish
+          separate pulses. Countable pulses usually live around 4–8 Hz; by
+          ~10–18 Hz they fuse into a rough focus buzz, which can still be useful
+          but is no longer a beat-counting drill.
+        </li>
+        <li>
+          Create a new point tab to clone the whole stack at a later timestamp.
+          Change carrier/beat/gain there; ENTRAIN exports that timeline as
+          SBaGen-style states and transitions.
+        </li>
+        <li>
+          During playback the compiled graph uses Web Audio frequency ramps,
+          which integrate phase correctly. A 10→2.5 Hz glide reaches 2.5 Hz at
+          the scheduled endpoint, not halfway through.
+        </li>
+        <li>
+          Do not confuse protocols: a conscious pulse-counting focus drill, an
+          SMR/beta focus buzz, and a Holosync-style descent are different arcs.
+          The UI can build all three, but the operator should choose one
+          intention per track.
+        </li>
+      </ol>
+    </details>
+  );
+}
+
+function GlobalPointTabs() {
+  const times = stageTimes();
+  return (
+    <div className="global-points">
+      <div className="eyebrow">Global timeline points</div>
+      <div className="point-tabs">
+        {times.map((t) => (
+          <button
+            key={t}
+            className={
+              "point-tab " + (Math.abs(t - activePointMin) < 1e-6 ? "on" : "")
+            }
+            onClick={() => selectPoint(t)}
+          >
+            {fmtPoint(t)}
+          </button>
+        ))}
+        <button className="point-tab add" onClick={cloneCurrentPoint}>
+          + clone point
+        </button>
+      </div>
+      <div className="two compact-two">
+        <div className="field">
+          <label>Active point start minute</label>
+          <input
+            type="number"
+            min="0"
+            max={String(session.durationMin)}
+            step="0.25"
+            value={String(activePointMin)}
+            onChange={(e: any) =>
+              moveActivePoint(Number(e.currentTarget.value || 0))
+            }
+          />
+        </div>
+        <div className="field">
+          <label>Segment ends at</label>
+          <input readOnly value={fmtPoint(nextPointAfter(activePointMin))} />
+        </div>
+      </div>
+      <TimelineMap />
+      <PointInspector />
+      <p className="small">
+        Each point is a full snapshot of the layer stack. Between adjacent
+        points, carrier frequency, beat Hz, and gain interpolate linearly.
+        Oscillator frequency ramps are scheduled as AudioParams, so the browser
+        integrates phase correctly instead of using the broken sin(2π·f(t)·t)
+        shortcut.
+      </p>
+    </div>
+  );
+}
+
+function PointInspector() {
+  const primary =
+    primaryBeatLayer() || session.layers.find((l) => !isNoCarrier(l));
+  if (!primary)
+    return (
+      <div className="point-inspector small">
+        Add a tone layer to preview carrier/beat interpolation between point
+        tabs.
+      </div>
+    );
+  const times = stageTimes();
+  const idx = Math.max(
+    0,
+    times.findIndex((t) => Math.abs(t - activePointMin) < 1e-6),
+  );
+  const prev = times[Math.max(0, idx - 1)] ?? 0;
+  const next =
+    times[Math.min(times.length - 1, idx + 1)] ?? session.durationMin;
+  const now = activePointMin;
+  const vals = (t: number) => ({
+    carrier: sampleTimelineSafe(primary, "carrierHz", t),
+    beat: sampleTimelineSafe(primary, "beatHz", t),
+    gain: sampleTimelineSafe(primary, "gainPct", t),
+  });
+  const rows = [
+    { label: "previous", t: prev, v: vals(prev) },
+    { label: "active", t: now, v: vals(now) },
+    { label: "next", t: next, v: vals(next) },
+  ];
+  return (
+    <div className="point-inspector">
+      <div className="point-inspector-head">
+        <b>Interpolation preview</b>
+        <span className="mono">{layerShortLabel(primary)}</span>
+      </div>
+      <div className="point-values">
+        {rows.map((r) => (
+          <div
+            className={"point-value " + (r.label === "active" ? "on" : "")}
+            key={r.label}
+          >
+            <span className="mono">
+              {r.label} · {fmtPoint(r.t)}
+            </span>
+            <b>
+              {!isNoBeat(primary)
+                ? `${fmtNum(r.v.beat)} Hz beat`
+                : `${fmtNum(r.v.carrier)} Hz`}
+            </b>
+            <em>
+              {!isNoCarrier(primary)
+                ? `${fmtNum(r.v.carrier)} Hz carrier · `
+                : ""}
+              {fmtNum(r.v.gain)}% gain
+            </em>
+          </div>
+        ))}
+      </div>
+      <p className="small">
+        During playback, these values do not step. They glide continuously from
+        point to point.
+      </p>
+    </div>
+  );
+}
+
+function AnalysisCard({
+  analysis,
+}: {
+  analysis: ReturnType<typeof analyzeSession>;
+}) {
+  return (
+    <div className="note analyzer-note">
+      <b>Protocol analyzer</b>
+      <div className="small">
+        {analysis.headphonesRequired
+          ? "headphones required"
+          : "speaker-safe modes only"}{" "}
+        · {analysis.mixStatus} · estimated peak{" "}
+        {analysis.estimatedPeakDb.toFixed(1)} dBFS · loop{" "}
+        {session.loop?.mode || "hold-last"}
+      </div>
+      {analysis.issues.length ? (
+        <ul className="small">
+          {analysis.issues.slice(0, 5).map((i) => (
+            <li key={i.code + i.message}>
+              <b>{i.level}</b>: {i.message}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <div className="small">No blocking issues found.</div>
+      )}
     </div>
   );
 }
@@ -1223,9 +1398,9 @@ function IsoTrapControls({ l }: { l: EntrainLayerV1 }) {
       <div className="field wide">
         <p className="small">
           Trap mode uses a raised-edge pulse train: steep enough to read as
-          separate isochronic pulses, with millisecond ramps to avoid
-          raw-square clicks. Lower edge = sharper; lower duty = more silence
-          between pulses.
+          separate isochronic pulses, with millisecond ramps to avoid raw-square
+          clicks. Lower edge = sharper; lower duty = more silence between
+          pulses.
         </p>
       </div>
     </>
@@ -1650,20 +1825,21 @@ function TimelineEditor({ l }: { l: EntrainLayerV1 }) {
   );
 }
 
-// ─── derived / pure helpers ──────────────────────────────────────────────────
-
 function primaryBeatLayer() {
   return (
     session.layers.find((l) => !l.mute && !isNoBeat(l)) ||
     session.layers.find((l) => !isNoBeat(l))
   );
 }
+function bandName(hz: number) {
+  return bandForHz(hz);
+}
 function layerColor(hz: number, type: LayerType) {
   if (type === "noise" || type === "sample" || type === "procedural-ambience")
     return "#5d6d87";
   if (type === "additive") return "#9be7d8";
   if (type === "karplus") return "#d7b16a";
-  const b = bandForHz(hz || 10);
+  const b = bandName(hz || 10);
   return b === "delta"
     ? "#6b7cf0"
     : b === "theta"
@@ -1693,12 +1869,6 @@ function layerTypeLabel(t: LayerType) {
     )[t] || t
   );
 }
-function layerShortLabel(l: EntrainLayerV1) {
-  if (l.type === "procedural-ambience") return "ambience";
-  if (l.type === "additive") return "additive";
-  if (l.type === "karplus") return "pluck";
-  return l.type.replace("iso-", "iso ");
-}
 function fmtClock(sec: number) {
   sec = Math.max(0, Math.floor(sec || 0));
   const h = Math.floor(sec / 3600),
@@ -1708,26 +1878,61 @@ function fmtClock(sec: number) {
     ? `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`
     : `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
+function addBandLayer(hz: number) {
+  const carrier = hz >= 30 ? 300 : 220;
+  session.layers.push({
+    id: uid(),
+    type: "iso-trap",
+    carrierHz: carrier,
+    wave: "sine",
+    isoPulse: { edgeMs: 8, duty: 0.45 },
+    keyframes: [
+      { tMin: 0, carrierHz: carrier, beatHz: hz, gainPct: 32 },
+      {
+        tMin: session.durationMin,
+        carrierHz: carrier,
+        beatHz: hz,
+        gainPct: 32,
+      },
+    ],
+  });
+  repaint(true);
+}
+
+function addProtocolGlide() {
+  const carrier = Number(prompt("Carrier Hz", "140") || 140);
+  const startBeat = Number(prompt("Start beat Hz", "10") || 10);
+  const endBeat = Number(prompt("End beat Hz", "2.5") || 2.5);
+  const durationMin = Math.max(
+    1,
+    Number(
+      prompt("Glide duration minutes", String(session.durationMin)) ||
+        session.durationMin,
+    ),
+  );
+  const gainPct = Math.max(
+    0,
+    Math.min(100, Number(prompt("Gain %", "20") || 20)),
+  );
+  session.durationMin = Math.max(session.durationMin, durationMin);
+  session.layers.push({
+    id: uid(),
+    type: "binaural",
+    carrierHz: carrier,
+    wave: "sine",
+    keyframes: createLinearGlideKeyframes(
+      startBeat,
+      endBeat,
+      durationMin,
+      gainPct,
+    ),
+  });
+  notice = `added ${carrier} Hz glide ${startBeat}→${endBeat} Hz over ${durationMin} min`;
+  repaint(true);
+}
+
 function fmtPoint(t: number) {
   return `${Math.round(t * 100) / 100}m`;
-}
-function fmtHz(v: number) {
-  return Math.round(v * 100) / 100;
-}
-function fmtPan(p: number) {
-  return p === 0
-    ? "C"
-    : p < 0
-      ? `${Math.round(Math.abs(p) * 100)}L`
-      : `${Math.round(p * 100)}R`;
-}
-function fmtNum(v: number) {
-  return Number.isFinite(v) ? String(Math.round(v * 10) / 10) : "0";
-}
-function clampNum(v: number, min: number, max: number, fallback: number) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return fallback;
-  return Math.max(min, Math.min(max, n));
 }
 function stageTimes() {
   const vals = new Set<number>([
@@ -1741,6 +1946,14 @@ function stageTimes() {
     .filter((t) => t >= 0 && t <= session.durationMin)
     .sort((a, b) => a - b);
 }
+function nextPointAfter(t: number) {
+  return stageTimes().find((x) => x > t + 1e-6) ?? session.durationMin;
+}
+function selectPoint(t: number) {
+  activePointMin = t;
+  ensureStagePoint(t);
+  repaint();
+}
 function nextSuggestedPoint() {
   return Math.min(
     session.durationMin,
@@ -1750,112 +1963,20 @@ function nextSuggestedPoint() {
     ),
   );
 }
-function sampleTimelineSafe(
-  l: EntrainLayerV1,
-  key: "beatHz" | "gainPct" | "carrierHz",
-  t: number,
-) {
-  if (key === "carrierHz") {
-    const sorted = [...l.keyframes].sort((a, b) => a.tMin - b.tMin);
-    if (sorted.every((k) => k.carrierHz == null))
-      return l.carrierHz || (l.type === "additive" ? 136.1 : 220);
-  }
-  const pts = [...l.keyframes].sort((a, b) => a.tMin - b.tMin);
-  if (!pts.length)
-    return key === "gainPct"
-      ? 35
-      : key === "carrierHz"
-        ? l.carrierHz || 220
-        : 10;
-  const val = (p: any) =>
-    Number(
-      p[key] ??
-        (key === "carrierHz" ? l.carrierHz : key === "beatHz" ? 10 : 35),
-    );
-  if (t <= pts[0].tMin) return val(pts[0]);
-  for (let i = 1; i < pts.length; i++)
-    if (t <= pts[i].tMin) {
-      const a = pts[i - 1],
-        b = pts[i],
-        f = (t - a.tMin) / Math.max(1e-9, b.tMin - a.tMin);
-      return val(a) + (val(b) - val(a)) * f;
-    }
-  return val(pts[pts.length - 1]);
-}
-function segmentLabel(l: EntrainLayerV1, a: number, b: number) {
-  const c0 = sampleTimelineSafe(l, "carrierHz", a),
-    c1 = sampleTimelineSafe(l, "carrierHz", b);
-  const g0 = sampleTimelineSafe(l, "gainPct", a),
-    g1 = sampleTimelineSafe(l, "gainPct", b);
-  if (!isNoBeat(l)) {
-    const beat0 = sampleTimelineSafe(l, "beatHz", a),
-      beat1 = sampleTimelineSafe(l, "beatHz", b);
-    const beat =
-      Math.abs(beat0 - beat1) > 0.05
-        ? `${fmtNum(beat0)}→${fmtNum(beat1)}Hz`
-        : `${fmtNum(beat0)}Hz`;
-    const carrier =
-      Math.abs(c0 - c1) > 0.5
-        ? ` · ${fmtNum(c0)}→${fmtNum(c1)}c`
-        : ` · ${fmtNum(c0)}c`;
-    return beat + carrier;
-  }
-  if (!isNoCarrier(l))
-    return Math.abs(c0 - c1) > 0.5
-      ? `${fmtNum(c0)}→${fmtNum(c1)}Hz`
-      : `${fmtNum(c0)}Hz`;
-  return Math.abs(g0 - g1) > 0.5
-    ? `${fmtNum(g0)}→${fmtNum(g1)}%`
-    : `${fmtNum(g0)}%`;
-}
-function describeLayerAtPoint(l: EntrainLayerV1, p: any) {
-  if (l.type === "binaural") {
-    const c = p.carrierHz || l.carrierHz || 220,
-      b = p.beatHz || 0;
-    return `${fmtNum(b)} Hz · L/R ${fmtHz(c - b / 2)} / ${fmtHz(c + b / 2)} Hz`;
-  }
-  if (!isNoBeat(l))
-    return `${fmtNum(p.beatHz || 0)} Hz beat · carrier ${p.carrierHz || l.carrierHz || 220} Hz`;
-  if (!isNoCarrier(l))
-    return `${p.carrierHz || l.carrierHz || 220} Hz carrier · gain ${p.gainPct || 0}%`;
-  return describeLayer(l);
-}
-function describeLayer(l: EntrainLayerV1) {
-  if (l.type === "sample")
-    return `${l.sampleName || "load a file"} · ${l.sampleLoop?.mode || "native"} loop`;
-  if (l.type === "procedural-ambience")
-    return `${l.ambienceRecipe || "pink-rain"} · seed ${l.seed || 1337}`;
-  if (l.type === "additive")
-    return `${l.carrierHz || 136.1} Hz base · ${(l.partials || []).length || 3} partials`;
-  if (l.type === "karplus")
-    return `${l.carrierHz || 220} Hz pluck · ${(l.karplus?.rateHz || 0.08).toFixed(3)} Hz rate`;
-  if (l.type === "noise") return `${l.noiseColor || "pink"} noise`;
-  if (l.type === "carrier") return `${l.carrierHz || 220} Hz carrier`;
-  const first = l.keyframes[0]?.beatHz || 10;
-  const last = l.keyframes[l.keyframes.length - 1]?.beatHz || first;
-  const carrier = l.carrierHz || 220;
-  if (l.type === "binaural")
-    return `${first}${first !== last ? `→${last}` : ""} Hz · L/R ${fmtHz(carrier - first / 2)} / ${fmtHz(carrier + first / 2)} Hz`;
-  return `${first}${first !== last ? `→${last}` : ""} Hz · carrier ${carrier} Hz`;
-}
-
-// ─── selection & point editing ───────────────────────────────────────────────
-
-function selectLayer(id: string, paint = true) {
-  selectedLayerId = id;
-  inspectorTab = "layer";
-  if (paint) repaint();
-}
-function selectPoint(t: number) {
-  activePointMin = t;
-  repaint();
-}
-function addPointFromActive() {
-  if (!session.layers.length) return;
-  const t = nextSuggestedPoint();
+function cloneCurrentPoint() {
+  const t = Math.max(
+    0,
+    Math.min(
+      session.durationMin,
+      Number(
+        prompt("New point start minute", String(nextSuggestedPoint())) ||
+          nextSuggestedPoint(),
+      ),
+    ),
+  );
   for (const l of session.layers) addLayerPointAt(l, t, activePointMin);
   activePointMin = t;
-  notice = `cloned stack to ${fmtPoint(t)} — change values here, they interpolate from the previous point`;
+  notice = `created point at ${fmtPoint(t)} from current stack`;
   repaint(true);
 }
 function moveActivePoint(next: number) {
@@ -1868,6 +1989,9 @@ function moveActivePoint(next: number) {
   }
   activePointMin = next;
   repaint(true);
+}
+function ensureStagePoint(t: number) {
+  session.layers.forEach((l) => ensureLayerPoint(l, t));
 }
 function addLayerPointAt(l: EntrainLayerV1, t: number, sourceT: number) {
   const k = {
@@ -1895,12 +2019,127 @@ function ensureLayerPoint(l: EntrainLayerV1, t: number) {
   if (!isNoBeat(l) && k.beatHz == null) k.beatHz = 10;
   return k;
 }
+function sampleTimelineSafe(
+  l: EntrainLayerV1,
+  key: "beatHz" | "gainPct" | "carrierHz",
+  t: number,
+) {
+  if (key === "carrierHz") {
+    const sorted = [...l.keyframes].sort((a, b) => a.tMin - b.tMin);
+    if (sorted.every((k) => k.carrierHz == null))
+      return l.carrierHz || (l.type === "additive" ? 136.1 : 220);
+  }
+  // Local copy to avoid importing sampleTimeline into this client twice in older bundles.
+  const pts = [...l.keyframes].sort((a, b) => a.tMin - b.tMin);
+  if (!pts.length)
+    return key === "gainPct"
+      ? 35
+      : key === "carrierHz"
+        ? l.carrierHz || 220
+        : 10;
+  const val = (p: any) =>
+    Number(
+      p[key] ??
+        (key === "carrierHz" ? l.carrierHz : key === "beatHz" ? 10 : 35),
+    );
+  if (t <= pts[0].tMin) return val(pts[0]);
+  for (let i = 1; i < pts.length; i++)
+    if (t <= pts[i].tMin) {
+      const a = pts[i - 1],
+        b = pts[i],
+        f = (t - a.tMin) / Math.max(1e-9, b.tMin - a.tMin);
+      return val(a) + (val(b) - val(a)) * f;
+    }
+  return val(pts[pts.length - 1]);
+}
 function setPointCarrier(l: EntrainLayerV1, value: number) {
   const p = ensureLayerPoint(l, activePointMin);
   p.carrierHz = value;
   if (activePointMin === 0 || !l.carrierHz) l.carrierHz = value;
   repaint(true);
 }
+
+function syncLiveReadouts() {
+  const elapsed = engine.positionSec();
+  const t = document.getElementById("studio-timer");
+  if (t)
+    t.textContent = `${fmtClock(elapsed)} / ${fmtClock(session.durationMin * 60)}`;
+  const state = document.getElementById("studio-state");
+  if (state) state.textContent = status;
+  const focus = document.getElementById("studio-focus") as HTMLElement | null;
+  const primary = primaryBeatLayer();
+  if (focus && primary) {
+    const beat = Math.max(0.5, primary.keyframes[0]?.beatHz || 10);
+    const ph = (elapsed * beat) % 1;
+    focus.style.transform =
+      ph < 0.5
+        ? "translate(-50%,-50%) scale(1.28)"
+        : "translate(-50%,-50%) scale(1)";
+    focus.style.boxShadow =
+      ph < 0.5
+        ? "0 0 38px 6px rgba(84,220,207,.58)"
+        : "0 0 0 rgba(84,220,207,0)";
+  }
+}
+
+function describeLayerAtPoint(l: EntrainLayerV1, p: any) {
+  if (l.type === "binaural") {
+    const c = p.carrierHz || l.carrierHz || 220,
+      b = p.beatHz || 0;
+    return `${b} Hz · L/R ${fmtHz(c - b / 2)} / ${fmtHz(c + b / 2)} Hz`;
+  }
+  if (!isNoBeat(l))
+    return `${p.beatHz || 0} Hz beat · carrier ${p.carrierHz || l.carrierHz || 220} Hz`;
+  if (!isNoCarrier(l))
+    return `${p.carrierHz || l.carrierHz || 220} Hz carrier · gain ${p.gainPct || 0}%`;
+  return describeLayer(l);
+}
+function describeLayer(l: EntrainLayerV1) {
+  if (l.type === "sample")
+    return `${l.sampleName || "load a file"} · ${l.sampleLoop?.mode || "native"} loop`;
+  if (l.type === "procedural-ambience")
+    return `${l.ambienceRecipe || "pink-rain"} · seed ${l.seed || 1337}`;
+  if (l.type === "additive")
+    return `${l.carrierHz || 136.1} Hz base · ${(l.partials || []).length || 3} partials`;
+  if (l.type === "karplus")
+    return `${l.carrierHz || 220} Hz pluck · ${(l.karplus?.rateHz || 0.08).toFixed(3)} Hz rate`;
+  if (l.type === "noise") return `${l.noiseColor || "pink"} noise`;
+  if (l.type === "carrier") return `${l.carrierHz || 220} Hz carrier`;
+  const first = l.keyframes[0]?.beatHz || 10;
+  const last = l.keyframes[l.keyframes.length - 1]?.beatHz || first;
+  const carrier = l.carrierHz || 220;
+  if (l.type === "binaural")
+    return `${first}${first !== last ? `→${last}` : ""} Hz · L/R ${fmtHz(carrier - first / 2)} / ${fmtHz(carrier + first / 2)} Hz`;
+  return `${first}${first !== last ? `→${last}` : ""} Hz · carrier ${carrier} Hz`;
+}
+function fmtHz(v: number) {
+  return Math.round(v * 100) / 100;
+}
+function fmtPan(p: number) {
+  return p === 0
+    ? "C"
+    : p < 0
+      ? `${Math.round(Math.abs(p) * 100)}L`
+      : `${Math.round(p * 100)}R`;
+}
+
+function scaleLayerGain(l: EntrainLayerV1, next: number) {
+  const current = l.keyframes[0]?.gainPct ?? 0;
+  if (current <= 0) {
+    l.keyframes.forEach((k) => {
+      k.gainPct = next;
+    });
+    return;
+  }
+  const ratio = next / current;
+  l.keyframes.forEach((k) => {
+    k.gainPct = Math.max(
+      0,
+      Math.min(100, Math.round((k.gainPct || 0) * ratio * 100) / 100),
+    );
+  });
+}
+
 function normalizeTimelines() {
   session.layers.forEach((l) => {
     l.keyframes.forEach((k) => {
@@ -1912,9 +2151,6 @@ function ensureTwoKeyframes(l: EntrainLayerV1) {
   if (l.keyframes.length < 2)
     l.keyframes.push({ ...l.keyframes[0], tMin: session.durationMin });
 }
-
-// ─── layer type mutation & creation ──────────────────────────────────────────
-
 function changeType(l: EntrainLayerV1, type: LayerType) {
   l.type = type;
   if (isNoCarrier(l)) l.carrierHz = undefined;
@@ -1969,22 +2205,10 @@ function changeType(l: EntrainLayerV1, type: LayerType) {
     l.seed = l.seed || 4242;
     l.pan = l.pan || 0;
   }
-  if (!isNoBeat(l))
-    l.keyframes.forEach((k) => {
-      if (k.beatHz == null) k.beatHz = 10;
-    });
 }
 
-function pushLayer(l: EntrainLayerV1, msg?: string) {
-  session.layers.push(l);
-  selectedLayerId = l.id;
-  inspectorTab = "layer";
-  paletteOpen = false;
-  if (msg) notice = msg;
-  repaint(true);
-}
-function addToneLayer(type: LayerType) {
-  const l: EntrainLayerV1 = {
+function addLayer() {
+  session.layers.push({
     id: uid(),
     type: "carrier",
     carrierHz: 220,
@@ -1993,39 +2217,13 @@ function addToneLayer(type: LayerType) {
       { tMin: 0, carrierHz: 220, gainPct: 35 },
       { tMin: session.durationMin, carrierHz: 220, gainPct: 35 },
     ],
-  } as EntrainLayerV1;
-  changeType(l, type);
-  pushLayer(
-    l,
-    type === "carrier"
-      ? "added plain carrier — verify it sounds steady, then switch method to isochronic trap"
-      : `added ${layerTypeLabel(type)}`,
-  );
-}
-function addBandLayer(hz: number) {
-  const carrier = hz >= 30 ? 300 : 220;
-  pushLayer(
-    {
-      id: uid(),
-      type: "iso-trap",
-      carrierHz: carrier,
-      wave: "sine",
-      isoPulse: { edgeMs: 8, duty: 0.45 },
-      keyframes: [
-        { tMin: 0, carrierHz: carrier, beatHz: hz, gainPct: 32 },
-        {
-          tMin: session.durationMin,
-          carrierHz: carrier,
-          beatHz: hz,
-          gainPct: 32,
-        },
-      ],
-    } as EntrainLayerV1,
-    `added ${hz} Hz isochronic trap`,
-  );
+  });
+  notice =
+    "added plain carrier; verify it sounds steady, then switch method to isochronic trap for crisp pulses";
+  repaint(true);
 }
 function addNoise() {
-  pushLayer({
+  session.layers.push({
     id: uid(),
     type: "noise",
     noiseColor: "pink",
@@ -2036,10 +2234,11 @@ function addNoise() {
       { tMin: 0, gainPct: 16 },
       { tMin: session.durationMin, gainPct: 16 },
     ],
-  } as EntrainLayerV1);
+  });
+  repaint(true);
 }
 function addAmbience() {
-  pushLayer({
+  session.layers.push({
     id: uid(),
     type: "sample",
     sampleName: "load a file",
@@ -2050,10 +2249,11 @@ function addAmbience() {
       { tMin: 0, gainPct: 22 },
       { tMin: session.durationMin, gainPct: 22 },
     ],
-  } as EntrainLayerV1);
+  });
+  repaint(true);
 }
 function addProceduralAmbience() {
-  pushLayer({
+  session.layers.push({
     id: uid(),
     type: "procedural-ambience",
     ambienceRecipe: "pink-rain",
@@ -2064,10 +2264,11 @@ function addProceduralAmbience() {
       { tMin: 0, gainPct: 18 },
       { tMin: session.durationMin, gainPct: 18 },
     ],
-  } as EntrainLayerV1);
+  });
+  repaint(true);
 }
 function addAdditive() {
-  pushLayer({
+  session.layers.push({
     id: uid(),
     type: "additive",
     carrierHz: 136.1,
@@ -2080,10 +2281,11 @@ function addAdditive() {
       { tMin: 0, gainPct: 20 },
       { tMin: session.durationMin, gainPct: 20 },
     ],
-  } as EntrainLayerV1);
+  });
+  repaint(true);
 }
 function addKarplus() {
-  pushLayer({
+  session.layers.push({
     id: uid(),
     type: "karplus",
     carrierHz: 220,
@@ -2096,25 +2298,8 @@ function addKarplus() {
       { tMin: 0, gainPct: 18 },
       { tMin: session.durationMin, gainPct: 18 },
     ],
-  } as EntrainLayerV1);
-}
-function addGlide() {
-  const carrierHz = clampNum(glide.carrierHz, 20, 2000, 140);
-  const startHz = clampNum(glide.startHz, 0, 45, 10);
-  const endHz = clampNum(glide.endHz, 0, 45, 2.5);
-  const minutes = clampNum(glide.minutes, 1, 180, 20);
-  const gainPct = clampNum(glide.gainPct, 0, 100, 20);
-  session.durationMin = Math.max(session.durationMin, minutes);
-  pushLayer(
-    {
-      id: uid(),
-      type: "binaural",
-      carrierHz,
-      wave: "sine",
-      keyframes: createLinearGlideKeyframes(startHz, endHz, minutes, gainPct),
-    } as EntrainLayerV1,
-    `added ${carrierHz} Hz glide ${startHz}→${endHz} Hz over ${minutes} min`,
-  );
+  });
+  repaint(true);
 }
 function bowlPartialsUi() {
   return [
@@ -2124,13 +2309,38 @@ function bowlPartialsUi() {
   ];
 }
 
-// ─── carrier verification (device sound check) ───────────────────────────────
-
-function markLayerSteady(l: EntrainLayerV1) {
-  const hz = Math.round(
-    sampleTimelineSafe(l, "carrierHz", activePointMin) || l.carrierHz || 0,
+function workflowPhase() {
+  if (!session.layers.length) return "blank";
+  const hasTone = session.layers.some((l) => l.type === "carrier");
+  const hasPulse = session.layers.some(
+    (l) =>
+      l.type.startsWith("iso") ||
+      l.type === "monaural" ||
+      l.type === "binaural",
   );
-  if (!hz) return;
+  const hasMultiplePoints = stageTimes().length > 1;
+  if (hasTone && !hasPulse) return "carrier";
+  if (hasPulse && !hasMultiplePoints) return "pulse";
+  if (hasMultiplePoints) return "timeline";
+  return "ready";
+}
+
+function activeCarrierHz() {
+  const layer = session.layers.find((l) => !isNoCarrier(l));
+  if (!layer) return 0;
+  return Math.round(
+    sampleTimelineSafe(layer, "carrierHz", activePointMin) ||
+      layer.carrierHz ||
+      0,
+  );
+}
+function markCurrentCarrierSteady() {
+  const hz = activeCarrierHz();
+  if (!hz) {
+    notice = "add a tone layer first";
+    repaint();
+    return;
+  }
   verifiedCarrierHz = hz;
   try {
     localStorage.setItem("entrain:verified-carrier", String(hz));
@@ -2146,14 +2356,84 @@ function clearVerifiedCarrier() {
   notice = "carrier verification cleared";
   repaint();
 }
-function convertToTrap(l: EntrainLayerV1) {
-  changeType(l, "iso-trap");
+function convertFirstCarrierToTrap() {
+  const l =
+    session.layers.find((x) => x.type === "carrier") ||
+    session.layers.find((x) => !isNoCarrier(x));
+  if (!l) {
+    addLayer();
+    return;
+  }
   const p = ensureLayerPoint(l, activePointMin);
+  l.type = "iso-trap";
+  l.isoPulse = l.isoPulse || { edgeMs: 8, duty: 0.45 };
   p.beatHz = p.beatHz || 6;
+  l.keyframes.forEach((k) => {
+    if (k.beatHz == null) k.beatHz = p.beatHz || 6;
+  });
   notice =
-    "converted carrier into iso trap — tune Beat Hz until pulses are clear";
+    "converted carrier into iso trap; tune Beat Hz until pulses are clear";
   repaint(true);
 }
+function quickClonePoint() {
+  const t = Math.min(
+    session.durationMin,
+    Math.max(
+      activePointMin + 1,
+      Math.round(
+        (activePointMin + Math.min(2, session.durationMin / 3)) * 100,
+      ) / 100,
+    ),
+  );
+  for (const l of session.layers) addLayerPointAt(l, t, activePointMin);
+  activePointMin = t;
+  notice = `cloned current stack to ${fmtPoint(t)}`;
+  repaint(true);
+}
+function primaryEditablePulse() {
+  let l = session.layers.find((x) => !isNoBeat(x));
+  if (!l) {
+    convertFirstCarrierToTrap();
+    l = session.layers.find((x) => !isNoBeat(x));
+  }
+  return l || null;
+}
+function applyIntention(kind: "countable" | "buzz" | "descent") {
+  const l = primaryEditablePulse();
+  if (!l) return;
+  changeType(l, "iso-trap");
+  const p = ensureLayerPoint(l, activePointMin);
+  if (kind === "countable") {
+    p.beatHz = 6;
+    p.gainPct = Math.max(p.gainPct || 0, 35);
+    l.isoPulse = { edgeMs: 8, duty: 0.45 };
+    notice = "countable pulse intention applied: 6 Hz trap pulses";
+  } else if (kind === "buzz") {
+    p.beatHz = 14;
+    p.gainPct = Math.max(p.gainPct || 0, 30);
+    l.isoPulse = { edgeMs: 5, duty: 0.5 };
+    notice = "focus buzz intention applied: 14 Hz fused texture";
+  } else {
+    const c = p.carrierHz || l.carrierHz || 340;
+    l.keyframes = [
+      { tMin: 0, carrierHz: c, beatHz: 10, gainPct: 32 },
+      {
+        tMin: Math.max(1, session.durationMin * 0.45),
+        carrierHz: c,
+        beatHz: 6,
+        gainPct: 32,
+      },
+      { tMin: session.durationMin, carrierHz: c, beatHz: 3, gainPct: 28 },
+    ];
+    activePointMin = 0;
+    if (!session.layers.some((x) => x.type === "procedural-ambience"))
+      addProceduralAmbience();
+    notice =
+      "descent arc applied: 10 → 6 → 3 Hz with interpolated timeline points";
+  }
+  repaint(true);
+}
+
 function loadCarrierCheck(hz: number) {
   engine.stop();
   status = "idle";
@@ -2175,14 +2455,65 @@ function loadCarrierCheck(hz: number) {
       },
     ],
   });
-  engine = createAudioEngine(() => session);
-  selectedLayerId = session.layers[0]?.id || null;
-  inspectorTab = "layer";
   notice = `${hz} Hz plain carrier loaded — listen for mechanical beating before adding modulation`;
   repaint(true);
 }
-
-// ─── starters ────────────────────────────────────────────────────────────────
+function layerShortLabel(l: EntrainLayerV1) {
+  if (l.type === "procedural-ambience") return "ambience";
+  if (l.type === "additive") return "additive";
+  if (l.type === "karplus") return "pluck";
+  return l.type.replace("iso-", "iso ");
+}
+function segmentLabel(l: EntrainLayerV1, a: number, b: number) {
+  const c0 = sampleTimelineSafe(l, "carrierHz", a),
+    c1 = sampleTimelineSafe(l, "carrierHz", b);
+  const g0 = sampleTimelineSafe(l, "gainPct", a),
+    g1 = sampleTimelineSafe(l, "gainPct", b);
+  if (!isNoBeat(l)) {
+    const beat0 = sampleTimelineSafe(l, "beatHz", a),
+      beat1 = sampleTimelineSafe(l, "beatHz", b);
+    const beat =
+      Math.abs(beat0 - beat1) > 0.05
+        ? `${fmtNum(beat0)}→${fmtNum(beat1)}Hz`
+        : `${fmtNum(beat0)}Hz`;
+    const carrier =
+      Math.abs(c0 - c1) > 0.5
+        ? ` · ${fmtNum(c0)}→${fmtNum(c1)}c`
+        : ` · ${fmtNum(c0)}c`;
+    return beat + carrier;
+  }
+  if (!isNoCarrier(l))
+    return Math.abs(c0 - c1) > 0.5
+      ? `${fmtNum(c0)}→${fmtNum(c1)}Hz`
+      : `${fmtNum(c0)}Hz`;
+  return Math.abs(g0 - g1) > 0.5
+    ? `${fmtNum(g0)}→${fmtNum(g1)}%`
+    : `${fmtNum(g0)}%`;
+}
+function fmtNum(v: number) {
+  return Number.isFinite(v) ? String(Math.round(v * 10) / 10) : "0";
+}
+function onStudioKey(e: KeyboardEvent) {
+  const target = e.target as HTMLElement | null;
+  if (
+    target &&
+    ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)
+  )
+    return;
+  const k = e.key.toLowerCase();
+  if (e.code === "Space") {
+    e.preventDefault();
+    void toggle();
+  } else if (k === "t") {
+    addLayer();
+  } else if (k === "p") {
+    cloneCurrentPoint();
+  } else if (k === "s") {
+    copyShareUrl();
+  } else if (k === "e") {
+    void exportWav();
+  }
+}
 
 function applyStarter(kind: "carrier" | "countable" | "buzz" | "descent") {
   engine.stop();
@@ -2295,15 +2626,11 @@ function applyStarter(kind: "carrier" | "countable" | "buzz" | "descent") {
         },
       ],
     });
-    notice = "descent starter loaded — the timeline shows the glide arc";
+    notice = "descent starter loaded — point tabs show the glide arc";
   }
   engine = createAudioEngine(() => session);
-  selectedLayerId = session.layers[0]?.id || null;
-  inspectorTab = "layer";
   repaint(true);
 }
-
-// ─── layer list operations ───────────────────────────────────────────────────
 
 function auditionLayer(id: string) {
   const target = session.layers.find((l) => l.id === id);
@@ -2312,28 +2639,25 @@ function auditionLayer(id: string) {
     l.solo = l.id === id;
     l.mute = false;
   });
-  notice = `auditioning ${layerTypeLabel(target.type)} only — clear Solo to restore the full stack`;
+  notice = `auditioning ${layerTypeLabel(target.type)} only — clear Solo to restore full stack`;
   repaint(true);
 }
+
 function duplicateLayer(id: string) {
   const l = session.layers.find((x) => x.id === id);
   if (!l) return;
-  const copy: EntrainLayerV1 = {
+  session.layers.push({
     ...JSON.parse(JSON.stringify(l)),
     id: uid(),
     sampleName:
       l.type === "sample"
         ? `${l.sampleName || "sample"} (reload file)`
         : l.sampleName,
-  };
-  pushLayer(copy, `duplicated ${layerTypeLabel(l.type)}`);
+  });
+  repaint(true);
 }
 function removeLayer(id: string) {
   session.layers = session.layers.filter((l) => l.id !== id);
-  if (selectedLayerId === id) {
-    selectedLayerId = session.layers[0]?.id || null;
-    if (!selectedLayerId) inspectorTab = "session";
-  }
   repaint(true);
 }
 async function loadSample(id: string, file?: File) {
@@ -2344,9 +2668,6 @@ async function loadSample(id: string, file?: File) {
   notice = `loaded ${file.name}`;
   repaint(true);
 }
-
-// ─── transport / engine ──────────────────────────────────────────────────────
-
 async function toggle() {
   if (engine.running) {
     engine.stop();
@@ -2360,73 +2681,6 @@ async function toggle() {
   }
   repaint();
 }
-function scheduleEngineRebuild() {
-  if (pendingRebuildOffset == null) pendingRebuildOffset = engine.positionSec();
-  status = "applying…";
-  clearTimeout(rebuildTimer);
-  rebuildTimer = setTimeout(() => {
-    const offset = pendingRebuildOffset ?? engine.positionSec();
-    pendingRebuildOffset = null;
-    if (engine.running) {
-      engine.stop();
-      setTimeout(
-        () =>
-          engine
-            .start({
-              loopPattern: (session.loop?.mode || "hold-last") !== "hold-last",
-              offsetSec: offset,
-            })
-            .then(() => {
-              status = "running";
-              draw();
-            })
-            .catch(() => {
-              status = "idle";
-            }),
-        80,
-      );
-    } else {
-      status = "idle";
-    }
-  }, 160);
-}
-function draw() {
-  if (!engine.running) return;
-  const canvas = document.getElementById(
-    "scope-canvas",
-  ) as HTMLCanvasElement | null;
-  if (canvas) engine.drawScope(canvas);
-  syncLiveReadouts();
-  requestAnimationFrame(draw);
-}
-function syncLiveReadouts() {
-  const elapsed = engine.positionSec();
-  const t = document.getElementById("studio-timer");
-  if (t)
-    t.textContent = `${fmtClock(elapsed)} / ${fmtClock(session.durationMin * 60)}`;
-  const state = document.getElementById("studio-state");
-  if (state) state.textContent = status;
-  const ph = document.getElementById("tl-playhead") as HTMLElement | null;
-  if (ph && engine.running && session.durationMin > 0)
-    ph.style.left = `${Math.min(100, Math.max(0, (elapsed / (session.durationMin * 60)) * 100))}%`;
-  const focus = document.getElementById("studio-focus") as HTMLElement | null;
-  const primary = primaryBeatLayer();
-  if (focus && primary) {
-    const beat = Math.max(0.5, primary.keyframes[0]?.beatHz || 10);
-    const phz = (elapsed * beat) % 1;
-    focus.style.transform =
-      phz < 0.5
-        ? "translate(-50%,-50%) scale(1.28)"
-        : "translate(-50%,-50%) scale(1)";
-    focus.style.boxShadow =
-      phz < 0.5
-        ? "0 0 38px 6px rgba(84,220,207,.58)"
-        : "0 0 0 rgba(84,220,207,0)";
-  }
-}
-
-// ─── files, share, import/export ─────────────────────────────────────────────
-
 function downloadBlob(blob: Blob, filename: string) {
   const a = document.createElement("a");
   const url = URL.createObjectURL(blob);
@@ -2446,7 +2700,7 @@ async function copyAlgorithmJson() {
   await navigator.clipboard
     .writeText(JSON.stringify(sanitizeSession(session), null, 2))
     .catch(() => {});
-  notice = "playable ENTRAIN algorithm JSON copied";
+  notice = "compiled JSON cache copied (debug only)";
   repaint();
 }
 async function copyPatternText() {
@@ -2487,9 +2741,6 @@ async function importJson(e: any) {
   session = sanitizeSession(JSON.parse(await f.text()));
   engine.stop();
   engine = createAudioEngine(() => session);
-  selectedLayerId = session.layers[0]?.id || null;
-  inspectorTab = selectedLayerId ? "layer" : "session";
-  activePointMin = 0;
   notice = "imported session";
   repaint();
 }
@@ -2507,49 +2758,49 @@ async function importPatternText(e: any) {
   }
   engine.stop();
   engine = createAudioEngine(() => session);
-  selectedLayerId = session.layers[0]?.id || null;
-  inspectorTab = selectedLayerId ? "layer" : "session";
-  activePointMin = 0;
   repaint();
 }
 async function copyShareUrl() {
-  const info = await encodeSessionUrl(session);
+  const info = await encodeSourceUrl(session);
   lastShare = info;
   await navigator.clipboard.writeText(info.url).catch(() => {});
   history.replaceState(null, "", info.hash);
   notice = info.portable
-    ? `exact private URL copied · checksum ${info.digest} · ${Math.ceil(info.bytes / 1024)} KB`
-    : `private URL copied, but local audio files must be reloaded · ${Math.ceil(info.bytes / 1024)} KB`;
+    ? `source URL copied · checksum ${info.digest} · ${Math.ceil(info.bytes / 1024)} KB`
+    : `source URL copied, but local audio files must be reloaded · ${Math.ceil(info.bytes / 1024)} KB`;
   if (info.warnings.length) notice += " · " + info.warnings[0];
   repaint();
 }
 async function copyShareCapsule() {
-  const info = await encodeSessionUrl(session);
+  const info = await encodeSourceUrl(session);
   lastShare = info;
   await navigator.clipboard.writeText(info.capsule).catch(() => {});
-  notice = `share capsule copied · checksum ${info.digest} · paste with Import URL/code`;
+  notice = `source capsule copied · checksum ${info.digest} · paste with Import URL/code`;
   if (info.warnings.length) notice += " · " + info.warnings[0];
   repaint();
 }
-async function importShareText() {
-  const text = importText.trim();
-  if (!text) {
-    notice = "paste a private URL, #es hash, capsule, or session JSON first";
-    repaint();
-    return;
-  }
+async function importShareString() {
+  const text = prompt(
+    "Paste an ENTRAIN private URL, #es hash, capsule, SBaGen/ENTRAIN script, or compiled JSON",
+  );
+  if (!text) return;
   try {
-    const next = await decodeSessionFromString(text);
-    if (!next) throw new Error("No ENTRAIN session found in pasted text.");
+    let next = await decodeSessionFromString(text);
+    if (!next) {
+      if (looksLikeSbagen(text)) next = sbagenTextToSession(text).session;
+      else if (
+        /^(name|duration|loop|binaural|monaural|iso-|noise|ambience|carrier|additive|karplus)\b/im.test(
+          text,
+        )
+      )
+        next = patternTextToSession(text);
+    }
+    if (!next)
+      throw new Error("No ENTRAIN session or script found in pasted text.");
     engine.stop();
     session = next;
     engine = createAudioEngine(() => session);
     lastShare = null;
-    importText = "";
-    menuOpen = false;
-    selectedLayerId = session.layers[0]?.id || null;
-    inspectorTab = selectedLayerId ? "layer" : "session";
-    activePointMin = 0;
     notice = sessionNeedsLocalFiles(session)
       ? "imported share; reload local ambience files to match sender"
       : "imported exact shared soundtrack";
@@ -2580,35 +2831,22 @@ function makePortableCopy() {
   engine.stop();
   engine = createAudioEngine(() => session);
   lastShare = null;
-  selectedLayerId = session.layers[0]?.id || null;
   notice = converted
     ? `converted ${converted} local file layer(s) into seeded procedural ambience for exact sharing`
     : "session is already portable";
   repaint(true);
 }
 function newLocalSession() {
-  if (!confirmNewArmed) {
-    confirmNewArmed = true;
-    notice =
-      "click again to confirm — current work is replaced (export/copy first if needed)";
-    repaint();
-    setTimeout(() => {
-      if (confirmNewArmed) {
-        confirmNewArmed = false;
-        repaint();
-      }
-    }, 4000);
+  if (
+    !confirm(
+      "Start a new local session? Your current session remains available only if you exported/copied it or autosave has it.",
+    )
+  )
     return;
-  }
-  confirmNewArmed = false;
   engine.stop();
   session = defaultSession();
   engine = createAudioEngine(() => session);
   lastShare = null;
-  selectedLayerId = null;
-  inspectorTab = "session";
-  activePointMin = 0;
-  status = "idle";
   notice = "new local session started";
   repaint(true);
 }
@@ -2617,6 +2855,56 @@ function clearAutosave() {
   notice = "local autosave cleared";
   repaint();
 }
+
+async function publishCurrent() {
+  try {
+    const title =
+      prompt("Public soundtrack title", session.name) || session.name;
+    const summary =
+      prompt(
+        "Short catalogue summary",
+        session.description ||
+          session.notes ||
+          "Community-created ENTRAIN soundtrack.",
+      ) || "Community-created ENTRAIN soundtrack.";
+    const priceSolRaw =
+      prompt("Price in SOL for paid access. Use 0 for free.", "0.05") || "0";
+    const priceLamports = Math.max(
+      0,
+      Math.floor(Number(priceSolRaw) * 1_000_000_000),
+    );
+    const creatorName = prompt("Creator display name", "") || "";
+    notice = "connect Phantom to publish…";
+    repaint();
+    await connectAndVerify();
+    const res = await fetch("/api/soundtracks/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title,
+        summary,
+        description: session.description || session.notes || summary,
+        category: "community",
+        tags: ["community", "creator"],
+        session: sanitizeSession(session),
+        priceLamports,
+        creatorName,
+        payoutWallet: undefined,
+        publishNow: true,
+      }),
+    }).then((r) => r.json());
+    if (!res.ok) throw new Error(res.error || "publish failed");
+    notice = res.published
+      ? `published to catalogue: /soundtracks/${res.slug}`
+      : `submitted for review: ${res.slug}`;
+    if (res.published && confirm("Open public soundtrack page now?"))
+      location.href = `/soundtracks/${res.slug}`;
+  } catch (e: any) {
+    notice = e.message || "publish failed";
+  }
+  repaint();
+}
+
 function sendAdminDraft() {
   sessionStorage.setItem(
     "entrain:admin-draft",
@@ -2625,9 +2913,43 @@ function sendAdminDraft() {
   notice = "copied current track to admin draft";
   repaint();
 }
-
-// ─── render loop & lifecycle ─────────────────────────────────────────────────
-
+async function saveServer() {
+  try {
+    let res = await fetch("/api/sessions", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: session.name,
+        slug: "custom",
+        session: sanitizeSession(session),
+        scriptFormat: "entrain-script.v1",
+        scriptText: sessionToPatternText(session),
+      }),
+    }).then((r) => r.json());
+    if (!res.ok && /wallet/i.test(res.error || "")) {
+      notice = "connect Phantom to save to your private library…";
+      repaint();
+      await connectAndVerify();
+      res = await fetch("/api/sessions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          name: session.name,
+          slug: "custom",
+          session: sanitizeSession(session),
+          scriptFormat: "entrain-script.v1",
+          scriptText: sessionToPatternText(session),
+        }),
+      }).then((r) => r.json());
+    }
+    notice = res.ok
+      ? "saved to private wallet library"
+      : res.error || "save failed";
+  } catch (e: any) {
+    notice = e.message || "save failed";
+  }
+  repaint();
+}
 function repaint(rebuild = false) {
   if (activePointMin > session.durationMin)
     activePointMin = session.durationMin;
@@ -2635,6 +2957,28 @@ function repaint(rebuild = false) {
   scheduleLocalAutosave();
   render(<App />, document.getElementById("studio-root")!);
 }
+function scheduleEngineRebuild() {
+  if (pendingRebuildOffset == null) pendingRebuildOffset = engine.positionSec();
+  clearTimeout(rebuildTimer);
+  rebuildTimer = setTimeout(() => {
+    const offset = pendingRebuildOffset ?? engine.positionSec();
+    pendingRebuildOffset = null;
+    if (engine.running) {
+      engine.stop();
+      setTimeout(
+        () =>
+          engine
+            .start({
+              loopPattern: (session.loop?.mode || "hold-last") !== "hold-last",
+              offsetSec: offset,
+            })
+            .catch(() => {}),
+        80,
+      );
+    }
+  }, 160);
+}
+
 function scheduleLocalAutosave() {
   if (booting) return;
   clearTimeout(autosaveTimer);
@@ -2647,32 +2991,19 @@ function scheduleLocalAutosave() {
     } catch {}
   }, 250);
 }
-function onStudioKey(e: KeyboardEvent) {
-  const target = e.target as HTMLElement | null;
-  if (
-    target &&
-    ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)
-  )
-    return;
-  if (e.key === "Escape" && (paletteOpen || menuOpen)) {
-    paletteOpen = false;
-    menuOpen = false;
-    repaint();
-    return;
-  }
-  const k = e.key.toLowerCase();
-  if (e.code === "Space") {
-    e.preventDefault();
-    void toggle();
-  } else if (k === "t") {
-    addToneLayer("carrier");
-  } else if (k === "p") {
-    addPointFromActive();
-  } else if (k === "s") {
-    void copyShareUrl();
-  } else if (k === "e") {
-    void exportWav();
-  }
+function draw() {
+  if (!engine.running) return;
+  const canvas = document.getElementById(
+    "scope-canvas",
+  ) as HTMLCanvasElement | null;
+  if (canvas) engine.drawScope(canvas);
+  syncLiveReadouts();
+  requestAnimationFrame(draw);
+}
+
+function decodeScriptHandoff(text: string) {
+  if (looksLikeSbagen(text)) return sbagenTextToSession(text).session;
+  return patternTextToSession(text);
 }
 
 export default async function mount() {
@@ -2684,12 +3015,17 @@ export default async function mount() {
     return null;
   });
   const handoff = sessionStorage.getItem("entrain:loaded-session");
+  const scriptHandoff = sessionStorage.getItem("entrain:loaded-script");
   const autosaved = localStorage.getItem("entrain:studio-autosave");
   if (shared) {
     session = shared;
     notice = sessionNeedsLocalFiles(session)
       ? "loaded shared URL; reload local ambience files to match sender"
       : "loaded exact private URL";
+  } else if (scriptHandoff) {
+    session = decodeScriptHandoff(scriptHandoff);
+    sessionStorage.removeItem("entrain:loaded-script");
+    notice = "loaded saved source script into studio";
   } else if (handoff) {
     session = sanitizeSession(JSON.parse(handoff));
     notice = "loaded soundtrack into studio";
@@ -2697,8 +3033,6 @@ export default async function mount() {
     session = sanitizeSession(JSON.parse(autosaved));
     notice = "restored local browser draft";
   }
-  selectedLayerId = session.layers[0]?.id || null;
-  inspectorTab = selectedLayerId ? "layer" : "session";
   booting = false;
   addEventListener("keydown", onStudioKey);
   render(<App />, document.getElementById("studio-root")!);
