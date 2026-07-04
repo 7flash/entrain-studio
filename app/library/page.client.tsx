@@ -10,8 +10,9 @@ import {
 let state: WalletState = { authenticated: false, publicKey: null, balance: 0 };
 let sessions: any[] = [];
 let message = "";
-let limit = 50;
-let remaining = 50;
+let limit: number | null = null;
+let remaining: number | null = null;
+let unlimited = true;
 let busyId: number | null = null;
 
 function App() {
@@ -27,8 +28,10 @@ function App() {
           <div className="small">
             {message ||
               (state.authenticated
-                ? `${sessions.length}/${limit} saved share links · ${remaining} remaining`
-                : "Studio works without login. Google sign-in lets you save up to 50 shareable tracks.")}
+                ? unlimited
+                  ? `${sessions.length} saved tracks · unlimited private library`
+                  : `${sessions.length}/${limit} saved tracks · ${remaining} remaining`
+                : "Studio works without login. Google sign-in gives you an unlimited private library and optional public publishing.")}
           </div>
         </div>
         <div className="tagrow">
@@ -115,7 +118,8 @@ function App() {
           <div className="notice">
             <strong>No login needed for creation.</strong> Use Studio and
             private <span className="mono">#</span> links without an account.
-            Google is only for your 50 saved cloud/share links.
+            Google is only for persistent private saves and optional public
+            catalogue publishing.
           </div>
         ) : null}
       </div>
@@ -142,8 +146,10 @@ async function load() {
     sessions = [];
   } else {
     sessions = r.sessions || [];
-    limit = r.limit || 50;
-    remaining = r.remaining ?? Math.max(0, limit - sessions.length);
+    limit = r.limit ?? null;
+    unlimited = !!r.unlimited;
+    remaining =
+      r.remaining ?? (limit ? Math.max(0, limit - sessions.length) : null);
     message = "";
   }
   paint();

@@ -60,13 +60,14 @@ function lineage(
   };
 }
 
-export const BUILTIN_SOUNDTRACK_REVISION = "builtin-v32-sbagen-source-db";
+export const BUILTIN_SOUNDTRACK_REVISION =
+  "builtin-v39-explore-categories-community";
 
 export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "alpha-wind-down",
     title: "Alpha → Theta Wind-down",
-    category: "relax",
+    category: "basic",
     tier: "free",
     minTokens: 0,
     summary: "A gentle alpha-to-theta descent with a pink noise bed.",
@@ -101,7 +102,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "focus-drill",
     title: "Beta Focus Drill",
-    category: "focus",
+    category: "basic",
     tier: "free",
     minTokens: 0,
     summary: "A crisp 18 Hz isochronic drill with a quiet alpha stabilizer.",
@@ -146,7 +147,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "ambience-drift-bed",
     title: "Ambience Drift Bed",
-    category: "soundscape",
+    category: "basic",
     tier: "holder",
     minTokens: 1,
     unlockNote:
@@ -191,7 +192,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "mind-awake-body-rest",
     title: "Mind Awake Body Rest",
-    category: "gateway",
+    category: "hemisync",
     tier: "holder",
     minTokens: 1,
     unlockNote: "Holder tier: basic multiplexed binaural stack.",
@@ -244,7 +245,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "dense-mind-awake-body-rest",
     title: "Dense Mind Awake Body Rest",
-    category: "gateway",
+    category: "hemisync",
     tier: "holder",
     minTokens: 1,
     unlockNote: "Holder tier: denser Focus-10-style carrier variant.",
@@ -317,7 +318,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "expanded-awareness-stack",
     title: "Expanded Awareness Stack",
-    category: "gateway",
+    category: "hemisync",
     tier: "pro",
     minTokens: 10,
     unlockNote: "Pro tier: larger stack with staged fade-ins.",
@@ -392,7 +393,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "dense-expanded-awareness-stack",
     title: "Dense Expanded Awareness Stack",
-    category: "gateway",
+    category: "hemisync",
     tier: "pro",
     minTokens: 10,
     unlockNote: "Pro tier: SBaGen-noted higher-carrier Focus-12-style variant.",
@@ -478,7 +479,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "deep-descent-60",
     title: "Deep Descent 60",
-    category: "premium",
+    category: "holosync",
     tier: "pro",
     minTokens: 10,
     unlockNote:
@@ -530,7 +531,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "focus-15-no-time",
     title: "Focus 15 · No-Time Drift",
-    category: "gateway",
+    category: "hemisync",
     tier: "free",
     minTokens: 0,
     summary:
@@ -600,7 +601,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "focus-21-bridge",
     title: "Focus 21 · Bridge Field",
-    category: "gateway",
+    category: "hemisync",
     tier: "free",
     minTokens: 0,
     summary:
@@ -681,7 +682,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "focus-22-transition-zone",
     title: "Focus 22 · Transition Zone",
-    category: "gateway",
+    category: "hemisync",
     tier: "free",
     minTokens: 0,
     summary:
@@ -737,7 +738,7 @@ export const seedTemplates: EntrainTemplateV1[] = [
   t({
     slug: "awakening-descent-110",
     title: "Deep Descent 60 · 110 Carrier",
-    category: "premium",
+    category: "holosync",
     tier: "free",
     minTokens: 0,
     summary: "A lower-carrier variant of the 60-minute 10→2.5→1.5 Hz descent.",
@@ -779,10 +780,221 @@ export const seedTemplates: EntrainTemplateV1[] = [
       },
     ]),
   }),
+
+  t({
+    slug: "awakening-descent-135",
+    title: "Deep Descent 60 · 135 Carrier",
+    category: "holosync",
+    tier: "free",
+    minTokens: 0,
+    summary: "A 135 Hz carrier variant of the 60-minute 10→2.5→1.5 Hz descent.",
+    description:
+      "A Holosync-style carrier-step variant. Same auditable 60-minute beat glide as Deep Descent 60, using a 135 Hz carrier for comparison and comfort testing.",
+    tags: ["holosync-style", "binaural", "delta", "descent", "carrier-step"],
+    lineage: lineage(
+      "",
+      "inspired",
+      "Carrier-step variant inspired by staged long-form descent practice; not an exact commercial level.",
+      ["Uses portable heavy-rain-bowls ambience."],
+    ),
+    session: s("Deep Descent 60 · 135 Carrier", 60, [
+      {
+        id: "descent-135",
+        type: "binaural",
+        carrierHz: 135,
+        wave: "sine",
+        keyframes: [
+          ...createLinearGlideKeyframes(10, 2.5, 30, 20),
+          { tMin: 60, beatHz: 1.5, gainPct: 18 },
+        ],
+      },
+      {
+        id: "heavy-rain-bowls",
+        type: "procedural-ambience",
+        ambienceRecipe: "heavy-rain-bowls",
+        seed: 6135,
+        pan: 0,
+        panMotion: { rateHz: 0.025, depth: 0.16 },
+        keyframes: [
+          { tMin: 0, gainPct: 0 },
+          { tMin: 2, gainPct: 48 },
+          { tMin: 60, gainPct: 48 },
+        ],
+      },
+    ]),
+  }),
+  t({
+    slug: "awakening-descent-130",
+    title: "Deep Descent 60 · 130 Carrier",
+    category: "holosync",
+    tier: "free",
+    minTokens: 0,
+    summary: "A 130 Hz carrier variant of the 60-minute 10→2.5→1.5 Hz descent.",
+    description:
+      "A Holosync-style carrier-step variant. Same auditable 60-minute beat glide as Deep Descent 60, using a 130 Hz carrier for comparison and comfort testing.",
+    tags: ["holosync-style", "binaural", "delta", "descent", "carrier-step"],
+    lineage: lineage(
+      "",
+      "inspired",
+      "Carrier-step variant inspired by staged long-form descent practice; not an exact commercial level.",
+      ["Uses portable heavy-rain-bowls ambience."],
+    ),
+    session: s("Deep Descent 60 · 130 Carrier", 60, [
+      {
+        id: "descent-130",
+        type: "binaural",
+        carrierHz: 130,
+        wave: "sine",
+        keyframes: [
+          ...createLinearGlideKeyframes(10, 2.5, 30, 20),
+          { tMin: 60, beatHz: 1.5, gainPct: 18 },
+        ],
+      },
+      {
+        id: "heavy-rain-bowls",
+        type: "procedural-ambience",
+        ambienceRecipe: "heavy-rain-bowls",
+        seed: 6130,
+        pan: 0,
+        panMotion: { rateHz: 0.025, depth: 0.16 },
+        keyframes: [
+          { tMin: 0, gainPct: 0 },
+          { tMin: 2, gainPct: 48 },
+          { tMin: 60, gainPct: 48 },
+        ],
+      },
+    ]),
+  }),
+  t({
+    slug: "awakening-descent-125",
+    title: "Deep Descent 60 · 125 Carrier",
+    category: "holosync",
+    tier: "free",
+    minTokens: 0,
+    summary: "A 125 Hz carrier variant of the 60-minute 10→2.5→1.5 Hz descent.",
+    description:
+      "A Holosync-style carrier-step variant. Same auditable 60-minute beat glide as Deep Descent 60, using a 125 Hz carrier for comparison and comfort testing.",
+    tags: ["holosync-style", "binaural", "delta", "descent", "carrier-step"],
+    lineage: lineage(
+      "",
+      "inspired",
+      "Carrier-step variant inspired by staged long-form descent practice; not an exact commercial level.",
+      ["Uses portable heavy-rain-bowls ambience."],
+    ),
+    session: s("Deep Descent 60 · 125 Carrier", 60, [
+      {
+        id: "descent-125",
+        type: "binaural",
+        carrierHz: 125,
+        wave: "sine",
+        keyframes: [
+          ...createLinearGlideKeyframes(10, 2.5, 30, 20),
+          { tMin: 60, beatHz: 1.5, gainPct: 18 },
+        ],
+      },
+      {
+        id: "heavy-rain-bowls",
+        type: "procedural-ambience",
+        ambienceRecipe: "heavy-rain-bowls",
+        seed: 6125,
+        pan: 0,
+        panMotion: { rateHz: 0.025, depth: 0.16 },
+        keyframes: [
+          { tMin: 0, gainPct: 0 },
+          { tMin: 2, gainPct: 48 },
+          { tMin: 60, gainPct: 48 },
+        ],
+      },
+    ]),
+  }),
+  t({
+    slug: "awakening-descent-120",
+    title: "Deep Descent 60 · 120 Carrier",
+    category: "holosync",
+    tier: "free",
+    minTokens: 0,
+    summary: "A 120 Hz carrier variant of the 60-minute 10→2.5→1.5 Hz descent.",
+    description:
+      "A Holosync-style carrier-step variant. Same auditable 60-minute beat glide as Deep Descent 60, using a 120 Hz carrier for comparison and comfort testing.",
+    tags: ["holosync-style", "binaural", "delta", "descent", "carrier-step"],
+    lineage: lineage(
+      "",
+      "inspired",
+      "Carrier-step variant inspired by staged long-form descent practice; not an exact commercial level.",
+      ["Uses portable heavy-rain-bowls ambience."],
+    ),
+    session: s("Deep Descent 60 · 120 Carrier", 60, [
+      {
+        id: "descent-120",
+        type: "binaural",
+        carrierHz: 120,
+        wave: "sine",
+        keyframes: [
+          ...createLinearGlideKeyframes(10, 2.5, 30, 20),
+          { tMin: 60, beatHz: 1.5, gainPct: 18 },
+        ],
+      },
+      {
+        id: "heavy-rain-bowls",
+        type: "procedural-ambience",
+        ambienceRecipe: "heavy-rain-bowls",
+        seed: 6120,
+        pan: 0,
+        panMotion: { rateHz: 0.025, depth: 0.16 },
+        keyframes: [
+          { tMin: 0, gainPct: 0 },
+          { tMin: 2, gainPct: 48 },
+          { tMin: 60, gainPct: 48 },
+        ],
+      },
+    ]),
+  }),
+  t({
+    slug: "awakening-descent-115",
+    title: "Deep Descent 60 · 115 Carrier",
+    category: "holosync",
+    tier: "free",
+    minTokens: 0,
+    summary: "A 115 Hz carrier variant of the 60-minute 10→2.5→1.5 Hz descent.",
+    description:
+      "A Holosync-style carrier-step variant. Same auditable 60-minute beat glide as Deep Descent 60, using a 115 Hz carrier for comparison and comfort testing.",
+    tags: ["holosync-style", "binaural", "delta", "descent", "carrier-step"],
+    lineage: lineage(
+      "",
+      "inspired",
+      "Carrier-step variant inspired by staged long-form descent practice; not an exact commercial level.",
+      ["Uses portable heavy-rain-bowls ambience."],
+    ),
+    session: s("Deep Descent 60 · 115 Carrier", 60, [
+      {
+        id: "descent-115",
+        type: "binaural",
+        carrierHz: 115,
+        wave: "sine",
+        keyframes: [
+          ...createLinearGlideKeyframes(10, 2.5, 30, 20),
+          { tMin: 60, beatHz: 1.5, gainPct: 18 },
+        ],
+      },
+      {
+        id: "heavy-rain-bowls",
+        type: "procedural-ambience",
+        ambienceRecipe: "heavy-rain-bowls",
+        seed: 6115,
+        pan: 0,
+        panMotion: { rateHz: 0.025, depth: 0.16 },
+        keyframes: [
+          { tMin: 0, gainPct: 0 },
+          { tMin: 2, gainPct: 48 },
+          { tMin: 60, gainPct: 48 },
+        ],
+      },
+    ]),
+  }),
   t({
     slug: "collector-40hz-suite",
     title: "40 Hz Collector Suite",
-    category: "research",
+    category: "basic",
     tier: "collector",
     minTokens: 100,
     unlockNote: "Collector tier: high-threshold experimental template.",
@@ -909,6 +1121,7 @@ export function rowFromTemplate(
     payoutWallet: template.market?.payoutWallet || "",
     ownerPublicKey: template.ownerPublicKey || "",
     creatorName: template.creatorName || "",
+    ownerEmail: (template as any).ownerEmail || "",
     creatorWallet: template.creatorWallet || "",
     publishedByUser: !!template.publishedByUser,
     purchaseCount: Number(template.market?.purchaseCount || 0),
@@ -999,6 +1212,7 @@ function normalizeTemplate(row: any): EntrainTemplateV1 {
     lineage: row.lineageJson || row.lineage || undefined,
     ownerPublicKey: row.ownerPublicKey || undefined,
     creatorName: row.creatorName || undefined,
+    ownerEmail: row.ownerEmail || undefined,
     creatorWallet: row.creatorWallet || undefined,
     publishedByUser: !!row.publishedByUser,
     market: {

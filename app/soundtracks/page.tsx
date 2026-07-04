@@ -5,47 +5,62 @@ export default function SoundtracksPage() {
   return (
     <main>
       <section className="hero" style={{ paddingBottom: "10px" }}>
-        <span className="pill unlocked">Public/free mode</span>
-        <h1>Ready brainwave soundtracks</h1>
+        <span className="pill unlocked">Explore</span>
+        <h1>Explore soundtracks</h1>
         <p>
-          Every published soundtrack is available to play, export, inspect, and
-          clone without login. Each card is a database row containing source
-          script plus compiled ENTRAIN runtime cache: layers, timelines,
-          ambience metadata, name, description, category, and tags.
+          Prepared catalogue rows come first: Basic, Holosync-style descents,
+          and Hemi-Sync-style focus stages. User-published tracks appear after
+          the prepared rows. Every soundtrack is free to play, export, inspect,
+          and clone.
         </p>
       </section>
-      <section className="toolbar">
+      <section className="toolbar explore-toolbar">
+        <div className="field explore-search">
+          <label>Search catalogue</label>
+          <input
+            id="explore-search"
+            placeholder="Search title, tags, creator, bands…"
+          />
+        </div>
         <div className="tagrow">
-          {groups.map((g) => (
+          {groups.map((g: any) => (
             <a className="pill" href={`#${g.category}`} key={g.category}>
-              {g.category} · {g.templates.length}
+              {g.label || g.category} · {g.templates.length}
             </a>
           ))}
         </div>
+        <div className="small" id="explore-count"></div>
       </section>
       {groups.map((group) => (
         <section
           key={group.category}
           id={group.category}
+          data-explore-group={group.category}
           style={{ marginBottom: "26px" }}
         >
           <h2 style={{ fontFamily: "Georgia,serif", fontWeight: 400 }}>
-            {group.category}
+            {(group as any).label || group.category}
           </h2>
           <div className="grid" id="template-grid">
             {group.templates.map((t) => (
               <article
                 className="card template-card unlocked-card"
                 data-soundtrack-card={t.slug}
+                data-category={group.category}
+                data-search={`${t.title} ${t.summary} ${t.description} ${t.creatorName || ""} ${t.tags.join(" ")} ${t.summaryStats.bands.join(" ")}`.toLowerCase()}
                 data-min-tokens="0"
                 key={t.slug}
               >
                 <div className="tagrow">
-                  <span className="pill">{t.category}</span>
+                  <span className="pill">
+                    {(group as any).label || t.category}
+                  </span>
                   <span className="pill unlocked">free</span>
                   {t.publishedByUser ? (
-                    <span className="pill">creator</span>
-                  ) : null}
+                    <span className="pill">user published</span>
+                  ) : (
+                    <span className="pill">prepared</span>
+                  )}
                   {t.lineage?.accuracy ? (
                     <span className="pill">{t.lineage.accuracy}</span>
                   ) : null}

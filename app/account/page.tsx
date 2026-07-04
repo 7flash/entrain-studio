@@ -5,8 +5,9 @@ export default function AccountPage() {
         <span className="pill unlocked">Google account</span>
         <h1>Your account</h1>
         <p>
-          Use Google sign-in for saved tracks and share links. Payments,
-          Phantom, room rewards, and token withdrawals are disabled.
+          Use Google sign-in for unlimited private saved tracks, /shared links,
+          and optional public catalogue publishing. Payments, Phantom, room
+          rewards, and token withdrawals are disabled.
         </p>
       </section>
       <section className="console" id="account-root">

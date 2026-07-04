@@ -4,9 +4,9 @@ export default function LibraryPage() {
       <section className="hero" style={{ paddingBottom: "14px" }}>
         <h1>Your saved tracks</h1>
         <p>
-          Sign in with Google to save up to 50 algorithmic tracks and share each
-          one with a simple link. Studio and private # links still work without
-          login.
+          Sign in with Google to save unlimited private algorithmic tracks and
+          share any one with a simple /shared link. Studio and private # source
+          links still work without login.
         </p>
       </section>
       <section className="console" id="library-root">

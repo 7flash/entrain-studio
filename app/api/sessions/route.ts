@@ -3,7 +3,7 @@ import { sanitizeSession } from "@/format/entrain-format";
 import { sessionToPatternText } from "@/format/pattern-text";
 import { authFromRequest, decideLibraryAccess } from "@/lib/access-policy";
 import { json, readJson } from "@/lib/http";
-import { MAX_SHARED_TRACKS_PER_USER } from "@/lib/config";
+import { MAX_SAVED_TRACKS_PER_USER } from "@/lib/config";
 
 type Body = {
   slug?: string;
@@ -42,11 +42,11 @@ export async function POST(req: Request) {
       .where({ publicKey: auth.publicKey })
       .all() as any[]
   ).length;
-  if (count >= MAX_SHARED_TRACKS_PER_USER)
+  if (MAX_SAVED_TRACKS_PER_USER > 0 && count >= MAX_SAVED_TRACKS_PER_USER)
     return json(
       {
         ok: false,
-        error: `Track limit reached. Each Google account can save/share up to ${MAX_SHARED_TRACKS_PER_USER} tracks.`,
+        error: `Track limit reached. Each Google account can save up to ${MAX_SAVED_TRACKS_PER_USER} tracks.`,
       },
       { status: 403 },
     );
@@ -91,7 +91,11 @@ export async function POST(req: Request) {
     ok: true,
     saved: row,
     shareUrl: `/shared/${id}`,
-    remaining: Math.max(0, MAX_SHARED_TRACKS_PER_USER - count - 1),
+    remaining:
+      MAX_SAVED_TRACKS_PER_USER > 0
+        ? Math.max(0, MAX_SAVED_TRACKS_PER_USER - count - 1)
+        : null,
+    unlimited: MAX_SAVED_TRACKS_PER_USER === 0,
   });
 }
 
@@ -103,16 +107,21 @@ export function GET(req: Request) {
       { ok: false, error: access.message, requiresLogin: true },
       { status: 401 },
     );
-  const rows = db.savedSessions
+  const q = db.savedSessions
     .select()
     .where({ publicKey: auth.publicKey })
-    .orderBy("createdAt", "DESC")
-    .limit(MAX_SHARED_TRACKS_PER_USER)
-    .all();
+    .orderBy("createdAt", "DESC");
+  const rows = (
+    MAX_SAVED_TRACKS_PER_USER > 0 ? q.limit(MAX_SAVED_TRACKS_PER_USER) : q
+  ).all();
   return json({
     ok: true,
     sessions: rows,
-    limit: MAX_SHARED_TRACKS_PER_USER,
-    remaining: Math.max(0, MAX_SHARED_TRACKS_PER_USER - rows.length),
+    limit: MAX_SAVED_TRACKS_PER_USER || null,
+    unlimited: MAX_SAVED_TRACKS_PER_USER === 0,
+    remaining:
+      MAX_SAVED_TRACKS_PER_USER > 0
+        ? Math.max(0, MAX_SAVED_TRACKS_PER_USER - rows.length)
+        : null,
   });
 }

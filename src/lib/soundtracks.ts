@@ -60,11 +60,41 @@ export function featuredSoundtracks(n = 3) {
   return featuredTemplates(n).map(toSoundtrack);
 }
 
+const CATEGORY_ORDER = [
+  "basic",
+  "holosync",
+  "hemisync",
+  "research",
+  "soundscape",
+  "user-published",
+];
+export const CATEGORY_LABELS: Record<string, string> = {
+  basic: "Basic",
+  holosync: "Holosync-style descents",
+  hemisync: "Hemi-Sync-style focus stages",
+  research: "Research / experiments",
+  soundscape: "Soundscapes",
+  "user-published": "User published",
+};
+
+export function categoryLabel(category: string) {
+  return CATEGORY_LABELS[category] || category;
+}
+
 export function soundtracksByCategory() {
-  return templatesByCategory().map((group) => ({
+  const groups = templatesByCategory().map((group) => ({
     ...group,
+    label: categoryLabel(group.category),
     templates: group.templates.map(toSoundtrack),
   }));
+  return groups.sort((a, b) => {
+    const ai = CATEGORY_ORDER.indexOf(a.category);
+    const bi = CATEGORY_ORDER.indexOf(b.category);
+    const ar = ai === -1 ? 50 : ai;
+    const br = bi === -1 ? 50 : bi;
+    if (ar !== br) return ar - br;
+    return a.category.localeCompare(b.category);
+  });
 }
 
 export function findSoundtrack(slug: string) {

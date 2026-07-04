@@ -15,15 +15,15 @@ export default function HomePage() {
           cache: layers, beat timelines, carrier glides, ambience-loop metadata,
           pan motion, name, and description. The browser player runs that format
           live, renders WAVs locally, and clones any soundtrack into the editor
-          without login. Google is optional only for saving up to 50 private
-          share links.
+          without login. Google is optional only for persistent private library
+          saves and publishing selected tracks into the community catalogue.
         </p>
         <p>
           <a className="btn primary" href="/studio">
             Create a track
           </a>{" "}
-          <a className="btn" href="/soundtracks">
-            Browse soundtracks
+          <a className="btn" href="/explore">
+            Explore soundtracks
           </a>
         </p>
       </section>
@@ -34,9 +34,9 @@ export default function HomePage() {
           <p className="muted">
             Build a track from scratch, play it, import/export JSON, share it
             privately by URL hash, and render a WAV locally. Creation and exact
-            # sharing need no login. Sign in with Google only when you want to
-            save a cloud copy and get a /shared link. Each account can save up
-            to 50 tracks.
+            # sharing need no login. Sign in with Google only when you want
+            persistent private saves, /shared links, or to publish a selected
+            track publicly.
           </p>
           <p>
             <a className="btn primary" href="/studio?new=1">
@@ -50,14 +50,16 @@ export default function HomePage() {
         <article className="card">
           <h3>Prepared soundtracks</h3>
           <p className="muted">
-            Published rows in the database appear as ready soundtracks. The
-            public catalogue is reserved for prepared/admin-curated soundtracks.
-            Community publishing is paused; users share by # link or save/share
-            privately with Google.
+            Published rows in the database appear as ready soundtracks. Explore
+            starts with prepared/admin-curated categories, then shows
+            user-published tracks from signed-in creators.
           </p>
           <p>
-            <a className="btn" href="/soundtracks">
-              Open catalog
+            <a className="btn" href="/explore">
+              Open Explore
+            </a>{" "}
+            <a className="btn" href="/creator">
+              Creator workspace
             </a>
           </p>
         </article>
@@ -68,7 +70,7 @@ export default function HomePage() {
           <h2 style={{ fontFamily: "Georgia,serif", fontWeight: 400 }}>
             Featured soundtracks
           </h2>
-          <a className="btn" href="/soundtracks">
+          <a className="btn" href="/explore">
             View all
           </a>
         </div>

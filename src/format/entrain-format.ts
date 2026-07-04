@@ -242,6 +242,7 @@ export type EntrainTemplateV1 = {
   lineage?: ProtocolLineageV1;
   ownerPublicKey?: string;
   creatorName?: string;
+  ownerEmail?: string;
   creatorWallet?: string;
   publishedByUser?: boolean;
   market?: {

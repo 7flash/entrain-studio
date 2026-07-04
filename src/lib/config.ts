@@ -12,8 +12,13 @@ export const GOOGLE_REDIRECT_URI =
   `${PUBLIC_ORIGIN.replace(/\/$/, "")}/api/auth/google/callback`;
 export const GOOGLE_OAUTH_STATE_COOKIE =
   process.env.GOOGLE_OAUTH_STATE_COOKIE || "entrain_google_state";
-export const MAX_SHARED_TRACKS_PER_USER = Number(
-  process.env.MAX_SHARED_TRACKS_PER_USER || 50,
+// Anonymous # source URLs need no login. Google accounts are only for persistent cloud saves
+// and optional public catalogue publishing. Private saved tracks are unlimited by default.
+export const MAX_SAVED_TRACKS_PER_USER = Number(
+  process.env.MAX_SAVED_TRACKS_PER_USER || 0,
+); // 0 = unlimited
+export const MAX_PUBLIC_TRACKS_PER_USER = Number(
+  process.env.MAX_PUBLIC_TRACKS_PER_USER || 50,
 );
 
 // Kept as an explicit mode flag so old token/payment routes can fail closed with a clear message.

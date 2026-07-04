@@ -276,10 +276,11 @@ function App() {
             <div className="eyebrow">No-login studio</div>
             <p className="small">
               Play, edit, render WAV, import/export, and share anonymously
-              without login. Google sign-in is only used to save up to 50
-              cloud/share links. The shared URL stores the source script after{" "}
-              <span className="mono">#</span>, so it is not sent to the server.
-              The compiled JSON remains only an advanced runtime cache.
+              without login. Google sign-in is only used for unlimited private
+              library saves and optional public catalogue publishing. The shared
+              URL stores the source script after <span className="mono">#</span>
+              , so it is not sent to the server. The compiled JSON remains only
+              an advanced runtime cache.
             </p>
             <div className="studio-file-actions local-first-actions">
               <button className="act primary" onClick={copyShareUrl}>
@@ -289,7 +290,7 @@ function App() {
                 Copy source capsule
               </button>
               <button className="act" onClick={saveServer}>
-                Save/share with Google
+                Save to library
               </button>
               <button className="act" onClick={importShareString}>
                 Import URL/code
@@ -366,17 +367,21 @@ function App() {
           <div className="studio-share-box">
             <div className="eyebrow">Publishing mode</div>
             <p className="small">
-              Public community publishing and paid sales are disabled. Save to
-              your Google library for a /shared link, share by exact # URL, or
-              send an admin draft for curated catalogue publishing.
+              Anonymous private sharing already works with exact # source URLs.
+              Sign in with Google to save unlimited private library tracks or
+              publish selected tracks into the public user-published catalogue.
+              No payments, token gates, or Phantom.
             </p>
             <div className="studio-file-actions">
               <button className="act" onClick={saveServer}>
-                Save/share with Google
+                Save to library
               </button>
-              <button className="act" onClick={sendAdminDraft}>
-                Admin draft
+              <button className="act primary" onClick={publishCurrent}>
+                Publish to catalogue
               </button>
+              <a className="act" href="/creator">
+                Creator workspace
+              </a>
             </div>
           </div>
         </aside>
@@ -2856,8 +2861,31 @@ function clearAutosave() {
 }
 
 async function publishCurrent() {
-  notice =
-    "Public publishing is disabled. Use Save/share with Google for a /shared link, or send an admin draft for curated catalogue rows.";
+  try {
+    const description = session.description || session.notes || "";
+    const res = await fetch("/api/soundtracks/publish", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        title: session.name,
+        summary: description.slice(0, 220),
+        description,
+        tags: ["community"],
+        session: sanitizeSession(session),
+        scriptFormat: "entrain-script.v1",
+        scriptText: sessionToPatternText(session),
+      }),
+    }).then((r) => r.json());
+    if (!res.ok && /(sign in|login|google|required)/i.test(res.error || "")) {
+      notice = "sign in with Google to publish…";
+      repaint();
+      await connectAndVerify();
+      return;
+    }
+    notice = res.ok ? `published · ${res.url}` : res.error || "publish failed";
+  } catch (e: any) {
+    notice = e.message || "publish failed";
+  }
   repaint();
 }
 
@@ -2889,7 +2917,7 @@ async function saveServer() {
       return;
     }
     notice = res.ok
-      ? `saved · share link ${res.shareUrl || ""}`
+      ? `saved to library${res.shareUrl ? ` · share link ${res.shareUrl}` : ""}`
       : res.error || "save failed";
   } catch (e: any) {
     notice = e.message || "save failed";

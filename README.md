@@ -1,206 +1,38 @@
-# ENTRAIN TradJS Server v0.31
+# ENTRAIN TradJS Server v0.40
 
-Public catalogue + optional wallet library pass. This corrects v0.30: catalogue access remains public/free, but Phantom login and private wallet saves are back. Creator/public marketplace publishing stays paused.
+This build polishes the Google-account publishing model while keeping Studio local-first.
 
-- All prepared catalogue soundtracks remain free/public and expose playable ENTRAIN JSON without wallet gates.
-- Phantom login is available again for private cloud saves. Studio creation, playback, exact # share URLs, JSON import/export, and WAV rendering still work without login.
-- `/library` is restored and lists wallet-saved private sessions.
-- `/creator` is restored as an account/profile workspace, but public publishing and paid sales remain disabled.
-- Studio now includes **Save to wallet library** while keeping anonymous # sharing as the main sharing path.
-- Creator/public submissions do not enter the public catalogue; use private share links or admin draft handoff.
-- Added more prepared gateway soundtracks: Focus 15 · No-Time Drift, Focus 21 · Bridge Field, Focus 22 · Transition Zone, and a 110 Hz Deep Descent variant. These are ENTRAIN-original/inspired rows, not official tape clones.
-- Navigation now includes Soundtracks, Create, Library, and Account.
+- Studio still works without login for creating, playing, rendering, importing/exporting, and exact private `#` source URL sharing.
+- Google login is only for persistent account features:
+  - unlimited private library saves,
+  - `/shared/<id>` links,
+  - publishing selected user tracks into the public catalogue.
+- Public Explore catalogue remains ordered as prepared rows first, then user-published rows.
+- Creator workspace now lists your public catalogue rows and lets you unpublish them.
+- Studio now has a visible **Publish to catalogue** action.
+- Explore now has client-side search/filtering across titles, descriptions, tags, creators, and bands.
+- Payments, Phantom, token gates, room rewards, and withdrawals remain disabled.
 
-Local run:
-
-```bash
-bun install
-cp .env.example .env
-bun run sync:soundtracks
-bun run dev
-```
-
-# ENTRAIN TradJS Server v0.30
-
-
-
-Public/free mode pass. Wallet login, paid creator access, token gating, and private cloud library UI are disabled for now so the app can focus on the Studio and public soundtrack player.
-
-- All prepared soundtracks normalize to `free` at the soundtracks layer. Former holder/pro/collector rows are playable, exportable, inspectable, and cloneable without Phantom.
-- `/api/access` returns playable ENTRAIN JSON without wallet checks in public/free mode.
-- Soundtrack detail pages now show the full signal map publicly and remove locked-player / buy / wallet copy.
-- Soundtrack catalogue no longer renders wallet access controls or gate badges.
-- Homepage/nav now focus on Create + Soundtracks only.
-- Studio hides wallet/cloud actions and keeps local autosave, JSON export, WAV render, private # share URLs, capsule codes, and admin draft handoff.
-- Creator marketplace, purchases, and cloud private library routes return explicit disabled messages while this mode is active.
-- `PUBLIC_FREE_MODE` defaults to enabled. Set `PUBLIC_FREE_MODE=0` later to re-enable wallet/payment flows.
-
-Local run:
+## Setup
 
 ```bash
 bun install
 cp .env.example .env
-bun run sync:soundtracks
-bun run dev
 ```
 
-# ENTRAIN TradJS Server v0.29
-
-Soundtrack player UX and route-state hardening pass.
-
-- Fixed a client-state leak when navigating between soundtrack pages: previously the unlocked title/session from one page could survive into another locked page until reload. Mount now resets player/session/room/export state per slug.
-- Locked soundtrack pages now show a clear locked-player explanation instead of a blank oscilloscope, group-room controls, and export controls.
-- Group listening and WAV export controls only render after the playable ENTRAIN JSON is actually unlocked.
-- Soundtrack player action bars are cleaner on mobile: full-width actions, better spacing, and less visual clutter before unlock.
-- The page now makes the data boundary explicit: locked pages hide layer/keyframe/signal maps; unlocked pages receive only JSON and synthesize locally.
-
-Local run:
+Configure Google OAuth in `.env`:
 
 ```bash
-bun install
-cp .env.example .env
-bun run sync:soundtracks
-bun run dev
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+GOOGLE_REDIRECT_URI=http://localhost:3000/api/auth/google/callback
+MAX_SAVED_TRACKS_PER_USER=0 # 0 = unlimited private library saves
+MAX_PUBLIC_TRACKS_PER_USER=50
 ```
 
-# ENTRAIN TradJS Server v0.28
-
-Studio cleanup and wallet-error pass.
-
-- Karplus pluck rate now supports up to 20 Hz in the UI, format sanitizer, and audio engine.
-- Non-tone layers no longer show a misleading method selector. Karplus, additive, noise, sample, and procedural ambience show a fixed layer-type pill.
-- Tone layers keep a focused Tone method selector with only carrier, isochronic, monaural, and binaural choices.
-- Studio layout is mobile-first: single-column edit flow, horizontal band strip, full-width action buttons, and side controls below the signal stack until desktop width.
-- Soundtrack detail pages now stack cleanly on mobile and only split into columns on wide screens.
-- Wallet verification now returns explicit challenge/signature errors instead of the generic `measure.assert: Verify wallet failed`.
-
-Local run:
+Then run:
 
 ```bash
-bun install
-cp .env.example .env
 bun run sync:soundtracks
 bun run dev
 ```
-
-# ENTRAIN TradJS Server v0.25
-
-Studio UI/UX pass.
-
-- Added a three-step workflow strip: carrier check → pulse threshold → timeline/export.
-- Added quick-start cards for carrier check, countable pulses, focus buzz, and descent arc.
-- Added polished empty-state guidance so a blank Studio starts from the operator workflow instead of a wall of controls.
-- Added per-layer health chips such as `check speaker beating`, `countable pulses`, `fused buzz`, and `headphones only`.
-- Added one-click layer audition: solo a layer from its card while preserving no-login local editing.
-- Kept advanced synthesis controls collapsed so the default surface stays focused on carrier, method, gain, and beat Hz.
-
-Local run:
-
-```bash
-bun install
-cp .env.example .env
-bun run sync:soundtracks
-bun run dev
-```
-
-# ENTRAIN TradJS Server v0.24
-
-Isochronic pulse shaping pass.
-
-- Added **Isochronic trap** as a third pulse mode between smooth and hard.
-- Trap mode uses raised-edge trapezoid gates with true silent gaps, default `edgeMs=8` and `duty=0.45`.
-- Added Studio controls for pulse edge and pulse duty under Advanced layer details.
-- Band quick-add now creates trap isochronic layers by default for crisp countable pulses.
-- Operator guide now explains the practical tension between countable theta pulses, fused SMR/beta focus buzz, and Holosync-style descending meditation arcs.
-- Compact pattern text now round-trips `iso-trap carrier=... beat=... edge=8ms duty=0.45`.
-- Signal maps identify trap isochronic layers and describe the gate formula.
-
-Local run:
-
-```bash
-bun install
-cp .env.example .env
-bun run sync:soundtracks
-bun run dev
-```
-
-# ENTRAIN TradJS Server v0.23
-
-Studio workflow now uses operator-first carrier checks and global point tabs.
-
-- Studio starts new tone layers as plain carriers, so operators verify the chosen carrier is steady before adding modulation.
-- Added operator guide instructions for carrier validation, isochronic smooth setup, and beat-threshold tuning.
-- Added global timeline point tabs that snapshot the whole layer stack at a timestamp. Carrier frequency, beat Hz, and gain interpolate between point tabs in the playable ENTRAIN session format.
-- Added per-keyframe `carrierHz`, so carrier glides are first-class and render live/offline.
-- Moved wave, pan, sample loop, and raw keyframe tables under Advanced layer details.
-- Added Copy algorithm JSON for inspecting/importing the exact playable format.
-
-Local run:
-
-```bash
-bun install
-cp .env.example .env
-bun run sync:soundtracks
-bun run dev
-```
-
-# ENTRAIN TradJS Server v0.22
-
-Local-first TradJS/Bun app for ENTRAIN Studio, prepared soundtracks, wallet-gated access, synced rooms, creator publishing, and private hash-based session sharing.
-
-## v0.22 focus: DSP correctness, marketplace hardening, and protocol authoring
-
-This pass applies the latest audit/reports from first principles:
-
-- Corrected isochronic depth:
-  - smooth isochronic now uses `(1 + sine) / 2`, reaching true silence with smooth edges.
-  - hard isochronic now uses `(1 + square) / 2`, reaching full-depth gating.
-- Replaced the always-working master compressor with a dormant safety limiter:
-  - threshold `-1.5 dBFS`, hard knee, high ratio.
-  - normal analyzer-passed sessions should not have their beat/pulse envelopes flattened.
-- Fixed procedural ambience loop seams:
-  - bowl-drone is rendered as a 16-second snapped harmonic loop with seam polish.
-  - stochastic noise/ambience loops are longer and lightly crossfaded.
-  - added portable `heavy-rain-bowls` ambience recipe for Deep Descent-style masking.
-- Added shared format primitives:
-  - `hasBeat`, `hasCarrier`, `sampleTimeline`, `BANDS`, and `MIX` live in the format layer.
-  - analyzer and engine share the same mix constants.
-- Added `createLinearGlideKeyframes()` and a Studio **Protocol replicator** helper.
-- Updated Deep Descent 60 with explicit glide formulas and the heavy-rain-bowls recipe.
-- Added `docs/acoustic-specifications.md` with binaural math, glide math, isochronic envelope rules, and SBaGen mapping.
-- Hardened paid creator purchases:
-  - server-issued purchase intents,
-  - exact lamport amount with tiny unique dust,
-  - memo-bound slug/intent,
-  - transaction signature reuse rejection.
-- Admin token is no longer accepted through a GET query parameter.
-- Paid community tracks now default to pending review; claim scanning is triage, not auto-approval.
-- Studio sliders preserve envelopes:
-  - gain slider scales keyframes proportionally,
-  - beat-start slider edits the first keyframe only,
-  - timeline table remains authoritative.
-- Studio rebuilds are debounced during slider drag so playback does not jump to zero.
-- Hold-last live playback now actually holds beyond the pattern duration.
-- Local WAV render cap is reduced to 60 minutes to avoid large OfflineAudioContext memory blowups.
-- Token market polling pauses in hidden tabs and refreshes less aggressively.
-- Added a lightweight maintenance sweep for expired challenges, sessions, purchase intents, sync rooms, and old play events.
-
-## Run locally
-
-```bash
-bun install
-cp .env.example .env
-bun run sync:soundtracks
-bun run dev
-```
-
-Studio remains no-login-first: edit, play, render WAV, import/export, and share private hash URLs without connecting Phantom.
-
-
-## v0.27 Studio coaching pass
-
-- Added an always-visible operator coach that tells the user the next useful action based on the current session state.
-- Added persistent carrier calibration: mark a carrier frequency as steady for the current playback device and keep it in local storage.
-- Added a Pulse intention selector for countable pulses, fused focus buzz, and descent arcs.
-- Added interpolation preview for global timeline point tabs so operators can see previous / active / next carrier, beat, and gain values.
-- Kept Studio local-first: all new coaching/calibration tools work without wallet login.

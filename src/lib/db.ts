@@ -43,6 +43,7 @@ export const db = new Database(
       copyReviewed: z.boolean().default(false),
       ownerPublicKey: z.string().optional(),
       creatorName: z.string().optional(),
+      ownerEmail: z.string().optional(),
       creatorWallet: z.string().optional(),
       publishedByUser: z.boolean().default(false),
       marketKind: z.string().default("token"), // free | token | paid | token_plus_paid
@@ -240,6 +241,7 @@ export type TemplateRow = {
   copyReviewed?: boolean;
   ownerPublicKey?: string;
   creatorName?: string;
+  ownerEmail?: string;
   creatorWallet?: string;
   publishedByUser?: boolean;
   marketKind?: string;
