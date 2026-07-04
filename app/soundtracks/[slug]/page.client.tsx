@@ -5,6 +5,7 @@ import {
 } from "@/format/entrain-format";
 import { signalMapForSession, formatSignalPoint } from "@/format/channel-map";
 import { createAudioEngine } from "@/client/audio-engine";
+import { sessionToPatternText } from "@/format/pattern-text";
 import {
   connectAndVerify,
   getWalletState,
@@ -23,6 +24,7 @@ let busy = false;
 let exportMinutes = 30;
 let repetitions = 1;
 let loadedTitle = "";
+let loadedScriptText = "";
 
 let roomId = "";
 let roomHostKey = "";
@@ -339,6 +341,8 @@ async function buyThenUnlock() {
     if (res.ok) {
       session = sanitizeSession(res.template.session);
       loadedTitle = res.template.title || session.name;
+      loadedScriptText =
+        res.template.scriptText || sessionToPatternText(session);
       engine.stop();
       engine = createAudioEngine(() => session!);
       message = "already unlocked";
@@ -445,6 +449,7 @@ async function unlock() {
     if (!res.ok) throw new Error(res.error || "locked");
     session = sanitizeSession(res.template.session);
     loadedTitle = res.template.title || session.name;
+    loadedScriptText = res.template.scriptText || sessionToPatternText(session);
     engine.stop();
     engine = createAudioEngine(() => session!);
     message = `loaded free/public soundtrack. Loop mode: ${session.loop?.mode || "hold-last"}. You can play forever, export WAV, clone it, or join a group room.`;
@@ -803,7 +808,10 @@ function getClientId() {
 function cloneToEditor() {
   if (!session) return;
   const copy = sanitizeSession({ ...session, name: `${session.name} — clone` });
-  sessionStorage.setItem("entrain:loaded-session", JSON.stringify(copy));
+  sessionStorage.setItem(
+    "entrain:loaded-script",
+    loadedScriptText || sessionToPatternText(copy),
+  );
   navigate(`/studio?clone=${encodeURIComponent(slug)}`);
 }
 
@@ -859,6 +867,7 @@ function resetPlayerState(nextSlug: string) {
   exportMinutes = 30;
   repetitions = 1;
   loadedTitle = "";
+  loadedScriptText = "";
   wallet = { authenticated: false, publicKey: null, balance: 0 };
   roomId = "";
   roomHostKey = "";

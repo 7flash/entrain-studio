@@ -108,6 +108,8 @@ export const db = new Database(
       description: z.string().optional(),
       tags: z.array(z.string()).default([]),
       session: z.any(),
+      scriptFormat: z.string().default("entrain-script.v1"),
+      scriptText: z.string().default(""),
       isFavorite: z.boolean().default(false),
       lastPlayedAt: z.number().optional(),
       ...timestamps,

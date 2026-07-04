@@ -30,45 +30,60 @@ export function sessionToPatternText(input: any) {
   ];
   for (const l of s.layers) {
     const first = l.keyframes[0];
-    const last = l.keyframes[l.keyframes.length - 1] || first;
     const g = Number.isFinite(gainDb(first?.gainPct || 0))
       ? `${gainDb(first.gainPct).toFixed(1)}dB`
       : "-inf";
+    const pts = encodePoints(l);
     if (l.type === "noise")
-      lines.push(`noise color=${l.noiseColor || "pink"} gain=${g}`);
+      lines.push(
+        `noise color=${l.noiseColor || "pink"} gain=${g} points=${pts}`,
+      );
     else if (l.type === "procedural-ambience")
       lines.push(
-        `ambience recipe=${l.ambienceRecipe || "pink-rain"} gain=${g} seed=${l.seed || 1337}`,
+        `ambience recipe=${l.ambienceRecipe || "pink-rain"} gain=${g} seed=${l.seed || 1337}${l.panMotion ? ` panRate=${l.panMotion.rateHz || 0} panDepth=${l.panMotion.depth || 0}` : ""} points=${pts}`,
       );
     else if (l.type === "sample")
       lines.push(
-        `sample name=${JSON.stringify(l.sampleName || "local file")} gain=${g} loop=${l.sampleLoop?.mode || "native"}`,
+        `sample name=${JSON.stringify(l.sampleName || "local file")} gain=${g} loop=${l.sampleLoop?.mode || "native"} points=${pts}`,
       );
     else if (l.type === "carrier")
-      lines.push(`carrier freq=${l.carrierHz || 220} gain=${g}`);
+      lines.push(`carrier freq=${l.carrierHz || 220} gain=${g} points=${pts}`);
     else if (l.type === "additive")
       lines.push(
-        `additive base=${l.carrierHz || 136.1} gain=${g} partials=${JSON.stringify(l.partials || [])}`,
+        `additive base=${l.carrierHz || 136.1} gain=${g} partials=${JSON.stringify(l.partials || [])} points=${pts}`,
       );
     else if (l.type === "karplus")
       lines.push(
-        `karplus freq=${l.carrierHz || 220} gain=${g} rate=${l.karplus?.rateHz || 0.08} decay=${l.karplus?.decay || 0.996} brightness=${l.karplus?.brightness ?? 0.55} seed=${l.seed || 4242}`,
+        `karplus freq=${l.carrierHz || 220} gain=${g} rate=${l.karplus?.rateHz || 0.08} decay=${l.karplus?.decay || 0.996} brightness=${l.karplus?.brightness ?? 0.55} seed=${l.seed || 4242} points=${pts}`,
       );
     else {
+      const firstBeat = first?.beatHz || 10;
+      const last = l.keyframes[l.keyframes.length - 1] || first;
       const beat =
         first?.beatHz === last?.beatHz
-          ? `${first?.beatHz || 10}`
-          : `${first?.beatHz || 10}->${last?.beatHz || first?.beatHz || 10}`;
+          ? `${firstBeat}`
+          : `${firstBeat}->${last?.beatHz || firstBeat}`;
       const pulse =
         l.type === "iso-trap"
           ? ` edge=${l.isoPulse?.edgeMs || 8}ms duty=${l.isoPulse?.duty || 0.45}`
           : "";
       lines.push(
-        `${l.type} carrier=${l.carrierHz || 220} beat=${beat} gain=${g}${pulse}`,
+        `${l.type} carrier=${l.carrierHz || 220} beat=${beat} gain=${g}${pulse} points=${pts}`,
       );
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+function encodePoints(l: EntrainLayerV1) {
+  return JSON.stringify(
+    (l.keyframes || []).map((k) => {
+      const row: any = { t: k.tMin, g: k.gainPct };
+      if (k.carrierHz !== undefined) row.c = k.carrierHz;
+      if (k.beatHz !== undefined) row.b = k.beatHz;
+      return row;
+    }),
+  );
 }
 
 export function patternTextToSession(text: string): EntrainSessionV1 {
@@ -105,7 +120,12 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
         id: uid(),
         type: "noise",
         noiseColor: args.color || "pink",
-        keyframes: kfs(durationMin, undefined, pct(args.gain, 18)),
+        keyframes: exactKfs(
+          args.points,
+          durationMin,
+          undefined,
+          pct(args.gain, 18),
+        ),
       });
     else if (cmd === "ambience")
       layers.push({
@@ -114,8 +134,16 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
         ambienceRecipe: args.recipe || "pink-rain",
         seed: Number(args.seed || 1337),
         pan: 0,
-        panMotion: { rateHz: 0.03, depth: 0.25 },
-        keyframes: kfs(durationMin, undefined, pct(args.gain, 18)),
+        panMotion: {
+          rateHz: Number(args.panRate || 0.03),
+          depth: Number(args.panDepth || 0.25),
+        },
+        keyframes: exactKfs(
+          args.points,
+          durationMin,
+          undefined,
+          pct(args.gain, 18),
+        ),
       });
     else if (cmd === "sample")
       layers.push({
@@ -127,20 +155,33 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
           startSec: 0,
           crossfadeSec: 3,
         },
-        keyframes: kfs(durationMin, undefined, pct(args.gain, 18)),
+        keyframes: exactKfs(
+          args.points,
+          durationMin,
+          undefined,
+          pct(args.gain, 18),
+        ),
       });
-    else if (cmd === "carrier")
+    else if (cmd === "carrier") {
+      const c = Number(args.freq || args.carrier || 220);
       layers.push({
         id: uid(),
         type: "carrier",
-        carrierHz: Number(args.freq || args.carrier || 220),
-        keyframes: kfs(durationMin, undefined, pct(args.gain, 20)),
+        carrierHz: c,
+        keyframes: exactKfs(
+          args.points,
+          durationMin,
+          undefined,
+          pct(args.gain, 20),
+          c,
+        ),
       });
-    else if (cmd === "additive")
+    } else if (cmd === "additive") {
+      const c = Number(args.base || args.freq || 136.1);
       layers.push({
         id: uid(),
         type: "additive",
-        carrierHz: Number(args.base || args.freq || 136.1),
+        carrierHz: c,
         partials: parseJson(args.partials) || [
           { ratio: 1, gain: 1 },
           { ratio: 1.5, gain: 0.5 },
@@ -153,13 +194,20 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
           releaseMs: 4000,
         },
         pan: 0,
-        keyframes: kfs(durationMin, undefined, pct(args.gain, 20)),
+        keyframes: exactKfs(
+          args.points,
+          durationMin,
+          undefined,
+          pct(args.gain, 20),
+          c,
+        ),
       });
-    else if (cmd === "karplus")
+    } else if (cmd === "karplus") {
+      const c = Number(args.freq || args.base || 220);
       layers.push({
         id: uid(),
         type: "karplus",
-        carrierHz: Number(args.freq || args.base || 220),
+        carrierHz: c,
         seed: Number(args.seed || 4242),
         karplus: {
           rateHz: Number(args.rate || 0.08),
@@ -168,9 +216,15 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
           durationSec: Number(args.duration || 6),
         },
         pan: 0,
-        keyframes: kfs(durationMin, undefined, pct(args.gain, 18)),
+        keyframes: exactKfs(
+          args.points,
+          durationMin,
+          undefined,
+          pct(args.gain, 18),
+          c,
+        ),
       });
-    else if (
+    } else if (
       ["binaural", "monaural", "iso-smooth", "iso-trap", "iso-hard"].includes(
         cmd,
       )
@@ -178,24 +232,29 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
       const beat = String(args.beat || "10")
         .split("->")
         .map(Number);
-      layers.push({
-        id: uid(),
-        type: cmd,
-        carrierHz: Number(args.carrier || 220),
-        wave: "sine",
-        isoPulse:
-          cmd === "iso-trap"
-            ? {
-                edgeMs: Number(String(args.edge || "8").replace("ms", "")),
-                duty: Number(args.duty || 0.45),
-              }
-            : undefined,
-        keyframes: kfs(
-          durationMin,
-          [beat[0] || 10, beat[1] || beat[0] || 10],
-          pct(args.gain, 35),
-        ),
-      });
+      {
+        const c = Number(args.carrier || 220);
+        layers.push({
+          id: uid(),
+          type: cmd,
+          carrierHz: c,
+          wave: "sine",
+          isoPulse:
+            cmd === "iso-trap"
+              ? {
+                  edgeMs: Number(String(args.edge || "8").replace("ms", "")),
+                  duty: Number(args.duty || 0.45),
+                }
+              : undefined,
+          keyframes: exactKfs(
+            args.points,
+            durationMin,
+            [beat[0] || 10, beat[1] || beat[0] || 10],
+            pct(args.gain, 35),
+            c,
+          ),
+        });
+      }
     }
   }
   return sanitizeSession({
@@ -208,15 +267,37 @@ export function patternTextToSession(text: string): EntrainSessionV1 {
   });
 }
 
-function kfs(
+function exactKfs(
+  points: string | undefined,
   durationMin: number,
   beats: [number, number] | undefined,
   gainPct: number,
+  carrierHz?: number,
 ) {
-  return [
-    { tMin: 0, beatHz: beats?.[0], gainPct },
-    { tMin: durationMin, beatHz: beats?.[1], gainPct },
-  ];
+  const parsed = parseJson(points);
+  if (Array.isArray(parsed) && parsed.length) {
+    return parsed
+      .map((p: any) => {
+        const k: any = {
+          tMin: Number(p.t ?? p.tMin ?? 0),
+          gainPct: Number(p.g ?? p.gainPct ?? gainPct),
+        };
+        if (p.c !== undefined || p.carrierHz !== undefined)
+          k.carrierHz = Number(p.c ?? p.carrierHz);
+        else if (carrierHz !== undefined) k.carrierHz = carrierHz;
+        if (p.b !== undefined || p.beatHz !== undefined)
+          k.beatHz = Number(p.b ?? p.beatHz);
+        return k;
+      })
+      .sort((a: any, b: any) => a.tMin - b.tMin);
+  }
+  const a: any = { tMin: 0, beatHz: beats?.[0], gainPct };
+  const b: any = { tMin: durationMin, beatHz: beats?.[1], gainPct };
+  if (carrierHz !== undefined) {
+    a.carrierHz = carrierHz;
+    b.carrierHz = carrierHz;
+  }
+  return [a, b];
 }
 function pct(v: string | undefined, fallback: number) {
   if (!v) return fallback;

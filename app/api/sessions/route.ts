@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { sanitizeSession } from "@/format/entrain-format";
+import { sessionToPatternText } from "@/format/pattern-text";
 import { authFromRequest, decideLibraryAccess } from "@/lib/access-policy";
 import { json, readJson } from "@/lib/http";
 
@@ -10,6 +11,8 @@ type Body = {
   description?: string;
   tags?: string[];
   session?: any;
+  scriptFormat?: string;
+  scriptText?: string;
 };
 
 export async function POST(req: Request) {
@@ -37,6 +40,8 @@ export async function POST(req: Request) {
       : session.description || session.notes?.slice(0, 1000),
     tags: Array.isArray(body.tags) ? body.tags.slice(0, 16).map(String) : [],
     session,
+    scriptFormat: body.scriptFormat || "entrain-script.v1",
+    scriptText: body.scriptText || sessionToPatternText(session),
     isFavorite: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),

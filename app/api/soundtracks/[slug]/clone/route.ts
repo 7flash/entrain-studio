@@ -7,20 +7,11 @@ import {
 import { db } from "@/lib/db";
 import { json } from "@/lib/http";
 import { publicSessionCopy } from "@/format/entrain-format";
-import { PUBLIC_FREE_MODE } from "@/lib/config";
+import { sessionToPatternText } from "@/format/pattern-text";
 
 type Props = { params: { slug: string } };
 
 export async function POST(req: Request, { params }: Props) {
-  if (PUBLIC_FREE_MODE)
-    return json(
-      {
-        ok: false,
-        error:
-          "Private cloud library is disabled in public/free mode. Use Clone to editor or a private # share URL.",
-      },
-      { status: 403 },
-    );
   const auth = authFromRequest(req);
   const lib = decideLibraryAccess(auth, "save");
   if (!lib.ok || !auth)
@@ -52,6 +43,8 @@ export async function POST(req: Request, { params }: Props) {
     description: `Private clone of ${soundtrack.title}`,
     tags: soundtrack.tags,
     session,
+    scriptFormat: "entrain-script.v1",
+    scriptText: soundtrack.scriptText || sessionToPatternText(session),
     isFavorite: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),

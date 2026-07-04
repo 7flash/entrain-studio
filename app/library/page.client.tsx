@@ -1,4 +1,5 @@
 import { render, navigate } from "tradjs/client";
+import { sessionToPatternText } from "@/format/pattern-text";
 import {
   connectAndVerify,
   getWalletState,
@@ -43,6 +44,7 @@ function App() {
                 </h3>
                 <div className="small">
                   {s.sourceSlug ? `clone of ${s.sourceSlug}` : s.slug} ·{" "}
+                  {s.scriptFormat || "entrain-script.v1"} ·{" "}
                   {new Date(s.createdAt).toLocaleString()}
                 </div>
                 {s.description ? (
@@ -52,6 +54,9 @@ function App() {
               <div className="tagrow">
                 <button className="btn" onClick={() => openSession(s)}>
                   Open in editor
+                </button>
+                <button className="btn" onClick={() => copySource(s)}>
+                  Copy source
                 </button>
                 <button
                   className="btn"
@@ -69,6 +74,12 @@ function App() {
                 </button>
               </div>
             </div>
+            {s.scriptText ? (
+              <details className="debug-details">
+                <summary>Source script</summary>
+                <pre className="source-pre">{s.scriptText}</pre>
+              </details>
+            ) : null}
           </article>
         ))}
         {state.authenticated && !sessions.length ? (
@@ -103,9 +114,20 @@ async function load() {
   }
   paint();
 }
+function sourceFor(s: any) {
+  return s.scriptText || (s.session ? sessionToPatternText(s.session) : "");
+}
 function openSession(s: any) {
-  sessionStorage.setItem("entrain:loaded-session", JSON.stringify(s.session));
+  const source = sourceFor(s);
+  if (source) sessionStorage.setItem("entrain:loaded-script", source);
+  else
+    sessionStorage.setItem("entrain:loaded-session", JSON.stringify(s.session));
   navigate("/studio?saved=1");
+}
+async function copySource(s: any) {
+  await navigator.clipboard.writeText(sourceFor(s)).catch(() => {});
+  message = "source script copied";
+  paint();
 }
 async function toggleFavorite(s: any) {
   busyId = s.id;

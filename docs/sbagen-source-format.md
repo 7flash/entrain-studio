@@ -53,3 +53,20 @@ f_inst(t) = f_start + beta * t
 ```
 
 So a 10 Hz → 2.5 Hz glide reaches 2.5 Hz at the scheduled endpoint, not halfway through the session.
+
+## v0.34 source-first private shares
+
+Studio private share links now prefer source text instead of compiled JSON:
+
+```text
+#src=v1.entrain.<raw|gzip>.<checksum>.<payload>
+ENTRAIN-SOURCE:v1:entrain:<raw|gzip>:<checksum>:<payload>
+```
+
+The payload is an ENTRAIN script, not the runtime JSON cache. It is compiled in the browser after import. The script format keeps exact keyframes using a `points=` field, for example:
+
+```text
+iso-trap carrier=340 beat=6 gain=-8.4dB edge=8ms duty=0.45 points=[{"t":0,"g":38,"c":340,"b":6},{"t":12,"g":38,"c":340,"b":6}]
+```
+
+The player still compiles that source into `entrain.session.v1` before rendering because Web Audio needs a normalized graph. The compiled JSON is a cache/debug artifact, not the source-of-truth format.

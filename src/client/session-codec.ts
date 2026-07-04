@@ -4,6 +4,11 @@ import {
   sanitizeSession,
   sessionNeedsLocalFiles,
 } from "@/format/entrain-format";
+import { looksLikeSbagen, sbagenTextToSession } from "@/format/sbagen";
+import {
+  patternTextToSession,
+  sessionToPatternText,
+} from "@/format/pattern-text";
 
 export type SharePayloadInfo = {
   hash: string;
@@ -16,19 +21,69 @@ export type SharePayloadInfo = {
   portable: boolean;
   urlSafe: boolean;
   warnings: string[];
+  sourceFormat?: "entrain-script.v1" | "sbagen.v1" | "compiled-json.v2";
 };
 
 /**
- * Private anonymous share format.
+ * Private anonymous share formats.
  *
- * v2 URL:     #es=v2.<encoding>.<digest>.<base64url-canonical-json-or-gzip>
- * v2 capsule: ENTRAIN:v2:<encoding>:<digest>:<payload>
+ * Source-first v1 URL: #src=v1.<format>.<encoding>.<digest>.<base64url-script>
+ * Source-first capsule: ENTRAIN-SOURCE:v1:<format>:<encoding>:<digest>:<payload>
  *
- * The payload lives after # in URL mode, so browsers do not send it to the server.
- * v1 (#es=v1.<encoding>.<payload>) and legacy #s= remain readable.
+ * Compiled-cache v2 URL: #es=v2.<encoding>.<digest>.<base64url-canonical-json-or-gzip>
+ * Compiled-cache capsule: ENTRAIN:v2:<encoding>:<digest>:<payload>
+ *
+ * Both URL payloads live after #, so browsers do not send them to the server.
+ * Studio now prefers source-first shares; compiled JSON remains readable for old links and debugging.
  */
 export async function encodeSessionHash(session: EntrainSessionV1) {
-  return (await encodeSessionUrl(session)).hash;
+  return (await encodeSourceUrl(session)).hash;
+}
+
+export async function encodeSourceUrl(
+  session: EntrainSessionV1,
+  baseUrl = location.origin + location.pathname,
+): Promise<SharePayloadInfo> {
+  const clean = cleanForShare(session);
+  const warnings: string[] = [];
+  const portable = !sessionNeedsLocalFiles(clean);
+  if (!portable)
+    warnings.push(
+      "This session contains local ambience-file layers. The URL preserves their settings, but not the audio file bytes. Use procedural ambience for a fully exact anonymous share.",
+    );
+
+  const script = sessionToPatternText(clean);
+  const raw = new TextEncoder().encode(script);
+  const digest = await shortDigest(raw);
+  let encoding: "raw" | "gzip" = "raw";
+  let payload = raw;
+  const gz = await gzip(raw).catch(() => null);
+  if (gz && gz.length + 12 < raw.length) {
+    encoding = "gzip";
+    payload = gz;
+  }
+  const b64 = base64url(payload);
+  const hash = `#src=v1.entrain.${encoding}.${digest}.${b64}`;
+  const url = baseUrl + hash;
+  const capsule = `ENTRAIN-SOURCE:v1:entrain:${encoding}:${digest}:${b64}`;
+  const urlSafe = url.length <= 8_000;
+  if (!urlSafe)
+    warnings.push(
+      "This URL is long. Use the copied source capsule as a fallback in messengers that truncate URLs.",
+    );
+  return {
+    hash,
+    url,
+    capsule,
+    encoding,
+    bytes: payload.length,
+    chars: url.length,
+    digest,
+    portable,
+    urlSafe,
+    warnings,
+    sourceFormat: "entrain-script.v1",
+  };
 }
 
 export async function encodeSessionUrl(
@@ -64,7 +119,7 @@ export async function encodeSessionUrl(
     );
   if (hash.length > 120_000)
     warnings.push(
-      "This share payload is very large. Copy the capsule or SBaGen/ENTRAIN script as a fallback.",
+      "This share payload is very large. Copy the capsule or source script as a fallback.",
     );
   return {
     hash,
@@ -77,6 +132,7 @@ export async function encodeSessionUrl(
     portable,
     urlSafe,
     warnings,
+    sourceFormat: "compiled-json.v2",
   };
 }
 
@@ -85,6 +141,71 @@ export async function decodeSessionHash(hash = location.hash) {
 }
 
 export async function decodeSessionFromString(input: string) {
+  const source = await decodeSourceFromString(input).catch((e) => {
+    throw e;
+  });
+  if (source) return source;
+  return decodeCompiledSessionFromString(input);
+}
+
+export async function decodeSourceFromString(input: string) {
+  const text = String(input || "").trim();
+  if (!text) return null;
+  const hash = text.includes("#") ? text.slice(text.indexOf("#")) : text;
+
+  const capsule = text.match(
+    /ENTRAIN-SOURCE:v1:(entrain|sbagen):(raw|gzip):([0-9a-f]{12}):([A-Za-z0-9_-]+)/,
+  );
+  if (capsule)
+    return decodeSourceV1(
+      capsule[1] as "entrain" | "sbagen",
+      capsule[2] as "raw" | "gzip",
+      capsule[3],
+      capsule[4],
+    );
+
+  const v1 = hash.match(
+    /(?:^#|&)src=v1\.(entrain|sbagen)\.(raw|gzip)\.([0-9a-f]{12})\.([^&]+)/,
+  );
+  if (v1)
+    return decodeSourceV1(
+      v1[1] as "entrain" | "sbagen",
+      v1[2] as "raw" | "gzip",
+      v1[3],
+      v1[4],
+    );
+
+  // Plain pasted source text fallback.
+  if (looksLikeSbagen(text)) return sbagenTextToSession(text).session;
+  if (
+    /^(name|duration|loop|binaural|monaural|iso-|noise|ambience|carrier|additive|karplus)\b/im.test(
+      text,
+    )
+  )
+    return patternTextToSession(text);
+  return null;
+}
+
+async function decodeSourceV1(
+  format: "entrain" | "sbagen",
+  mode: "raw" | "gzip",
+  expectedDigest: string,
+  payload: string,
+) {
+  const bytes = fromBase64url(payload);
+  const decoded = mode === "gzip" ? await gunzip(bytes) : bytes;
+  const actual = await shortDigest(decoded);
+  if (expectedDigest && actual !== expectedDigest)
+    throw new Error(
+      `Shared ENTRAIN source failed checksum: expected ${expectedDigest}, got ${actual}.`,
+    );
+  const script = new TextDecoder().decode(decoded);
+  return format === "sbagen"
+    ? sbagenTextToSession(script).session
+    : patternTextToSession(script);
+}
+
+async function decodeCompiledSessionFromString(input: string) {
   const text = String(input || "").trim();
   if (!text) return null;
 
@@ -171,7 +292,7 @@ async function gzip(bytes: Uint8Array) {
 async function gunzip(bytes: Uint8Array) {
   if (!("DecompressionStream" in window))
     throw new Error(
-      "This browser cannot decompress shared ENTRAIN URLs. Ask the sender to copy the capsule code as raw JSON, export JSON, or open in a modern browser.",
+      "This browser cannot decompress shared ENTRAIN URLs. Ask the sender to copy the source capsule, export source script, or open in a modern browser.",
     );
   const ds = new DecompressionStream("gzip");
   const writer = ds.writable.getWriter();

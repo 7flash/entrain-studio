@@ -27,6 +27,7 @@ import {
   decodeSessionHash,
   decodeSessionFromString,
   encodeSessionUrl,
+  encodeSourceUrl,
   type SharePayloadInfo,
 } from "@/client/session-codec";
 import { connectAndVerify } from "@/client/wallet";
@@ -276,16 +277,17 @@ function App() {
             <p className="small">
               Play, edit, render WAV, import/export, and share anonymously
               without connecting a wallet. Phantom is optional and only used to
-              save a private cloud copy to your wallet library. The URL payload
-              lives after <span className="mono">#</span>, so it is not sent to
-              the server.
+              save a private cloud copy to your wallet library. The shared URL
+              stores the source script after <span className="mono">#</span>, so
+              it is not sent to the server. The compiled JSON remains only an
+              advanced runtime cache.
             </p>
             <div className="studio-file-actions local-first-actions">
               <button className="act primary" onClick={copyShareUrl}>
-                Copy exact private URL
+                Copy source URL
               </button>
               <button className="act" onClick={copyShareCapsule}>
-                Copy capsule
+                Copy source capsule
               </button>
               <button className="act" onClick={saveServer}>
                 Save to wallet library
@@ -357,7 +359,7 @@ function App() {
             ) : (
               <p className="small">
                 This session is portable: all stochastic layers use stored
-                seeds, and the v2 share checksum verifies the copied algorithm
+                seeds, and the source URL checksum verifies the copied script
                 before loading.
               </p>
             )}
@@ -952,7 +954,7 @@ function coachPlan(analysis: ReturnType<typeof analyzeSession>) {
     body: "The stack has a timeline, is portable, and has no blocking analyzer issues. Use private URL for anonymous sharing or render a WAV locally.",
     micro: `${session.layers.length} layers · ${stageTimes().length} points · ${analysis.estimatedPeakDb.toFixed(1)} dBFS estimated peak`,
     actions: [
-      { label: "Copy private URL", primary: true, fn: copyShareUrl },
+      { label: "Copy source URL", primary: true, fn: copyShareUrl },
       { label: "Render WAV", fn: () => void exportWav() },
       {
         label: "Audition primary",
@@ -2759,21 +2761,21 @@ async function importPatternText(e: any) {
   repaint();
 }
 async function copyShareUrl() {
-  const info = await encodeSessionUrl(session);
+  const info = await encodeSourceUrl(session);
   lastShare = info;
   await navigator.clipboard.writeText(info.url).catch(() => {});
   history.replaceState(null, "", info.hash);
   notice = info.portable
-    ? `exact private URL copied · checksum ${info.digest} · ${Math.ceil(info.bytes / 1024)} KB`
-    : `private URL copied, but local audio files must be reloaded · ${Math.ceil(info.bytes / 1024)} KB`;
+    ? `source URL copied · checksum ${info.digest} · ${Math.ceil(info.bytes / 1024)} KB`
+    : `source URL copied, but local audio files must be reloaded · ${Math.ceil(info.bytes / 1024)} KB`;
   if (info.warnings.length) notice += " · " + info.warnings[0];
   repaint();
 }
 async function copyShareCapsule() {
-  const info = await encodeSessionUrl(session);
+  const info = await encodeSourceUrl(session);
   lastShare = info;
   await navigator.clipboard.writeText(info.capsule).catch(() => {});
-  notice = `share capsule copied · checksum ${info.digest} · paste with Import URL/code`;
+  notice = `source capsule copied · checksum ${info.digest} · paste with Import URL/code`;
   if (info.warnings.length) notice += " · " + info.warnings[0];
   repaint();
 }
@@ -2920,6 +2922,8 @@ async function saveServer() {
         name: session.name,
         slug: "custom",
         session: sanitizeSession(session),
+        scriptFormat: "entrain-script.v1",
+        scriptText: sessionToPatternText(session),
       }),
     }).then((r) => r.json());
     if (!res.ok && /wallet/i.test(res.error || "")) {
@@ -2933,6 +2937,8 @@ async function saveServer() {
           name: session.name,
           slug: "custom",
           session: sanitizeSession(session),
+          scriptFormat: "entrain-script.v1",
+          scriptText: sessionToPatternText(session),
         }),
       }).then((r) => r.json());
     }
@@ -2995,6 +3001,11 @@ function draw() {
   requestAnimationFrame(draw);
 }
 
+function decodeScriptHandoff(text: string) {
+  if (looksLikeSbagen(text)) return sbagenTextToSession(text).session;
+  return patternTextToSession(text);
+}
+
 export default async function mount() {
   booting = true;
   const savedCarrier = localStorage.getItem("entrain:verified-carrier");
@@ -3004,12 +3015,17 @@ export default async function mount() {
     return null;
   });
   const handoff = sessionStorage.getItem("entrain:loaded-session");
+  const scriptHandoff = sessionStorage.getItem("entrain:loaded-script");
   const autosaved = localStorage.getItem("entrain:studio-autosave");
   if (shared) {
     session = shared;
     notice = sessionNeedsLocalFiles(session)
       ? "loaded shared URL; reload local ambience files to match sender"
       : "loaded exact private URL";
+  } else if (scriptHandoff) {
+    session = decodeScriptHandoff(scriptHandoff);
+    sessionStorage.removeItem("entrain:loaded-script");
+    notice = "loaded saved source script into studio";
   } else if (handoff) {
     session = sanitizeSession(JSON.parse(handoff));
     notice = "loaded soundtrack into studio";
