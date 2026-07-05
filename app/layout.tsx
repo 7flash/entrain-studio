@@ -16,15 +16,6 @@ export default function RootLayout({ children }: { children: any }) {
             <a className="brand" href="/">
               ENTRAIN<b>·studio</b>
             </a>
-            <div className="navlinks">
-              <a href="/explore">Explore</a>
-              <a href="/rooms">Rooms</a>
-              <a href="/studio">Create</a>
-              <a href="/library">Saved</a>
-              <a href="/creator">Creator</a>
-              <a href="/account">Account</a>
-              <a href="/admin">Admin</a>
-            </div>
           </nav>
           {children}
         </div>
