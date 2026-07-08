@@ -2,18 +2,17 @@ export default function AccountPage() {
   return (
     <main>
       <section className="hero" style={{ paddingBottom: "14px" }}>
-        <span className="pill unlocked">Google account</span>
-        <h1>Your account</h1>
+        <span className="pill">Studio-only</span>
+        <h1>Account removed</h1>
         <p>
-          Use Google sign-in for unlimited private saved tracks, /shared links,
-          and optional public catalogue publishing. Payments, Phantom, room
-          rewards, and token withdrawals are disabled.
+          ENTRAIN now runs as a local-first Studio. No personal account is
+          needed to build, export, share, or embed sessions.
         </p>
-      </section>
-      <section className="console" id="account-root">
-        <div className="panel">
-          <p className="muted">Loading account…</p>
-        </div>
+        <p>
+          <a className="btn primary" href="/studio">
+            Open Studio
+          </a>
+        </p>
       </section>
     </main>
   );

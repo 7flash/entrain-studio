@@ -38,13 +38,12 @@ export default function LandingPage() {
           </div>
           <h1 className="reveal r2">
             A beat your ears follow.
-            <br />
-            A line your eyes <em>lock onto.</em>
+            <br />A line your eyes <em>lock onto.</em>
           </h1>
           <p className="lede reveal r3">
             ENTRAIN Studio composes binaural, monaural, and isochronic
-            soundtracks — and pairs them with a fixation target that jumps
-            once per beat, phase-locked to the exact glide the audio plays.
+            soundtracks — and pairs them with a fixation target that jumps once
+            per beat, phase-locked to the exact glide the audio plays.
           </p>
           <div className="btnrow landing-cta reveal r4">
             <a className="btn primary big" href="/studio">
@@ -94,29 +93,28 @@ export default function LandingPage() {
             <p>
               Smooth motion and pulsing dots stop reading above a few hertz. A
               line that <em>jumps</em> to a new slot every beat produces
-              discrete fixation events — trackable at 30&nbsp;Hz on an
-              ordinary display. Its position comes from the exact phase
-              integral of the beat glide, so the visual is ground truth for
-              the audio.
+              discrete fixation events — trackable at 30&nbsp;Hz on an ordinary
+              display. Its position comes from the exact phase integral of the
+              beat glide, so the visual is ground truth for the audio.
             </p>
           </article>
           <article className="principle reveal r6">
             <span className="p-index mono">02 · one glide</span>
             <h3>Start → End. Nothing else.</h3>
             <p>
-              No keyframe forests. Every layer holds two states — Start and
-              End — for carrier, beat, and gain, interpolated linearly across
-              the whole soundtrack. Tie them for a steady tone; untie for a
-              descent arc. SBaGen scripts import and export cleanly.
+              No keyframe forests. Every layer holds two states — Start and End
+              — for carrier, beat, and gain, interpolated linearly across the
+              whole soundtrack. Tie them for a steady tone; untie for a descent
+              arc. SBaGen scripts import and export cleanly.
             </p>
           </article>
           <article className="principle reveal r7">
             <span className="p-index mono">03 · local-first</span>
             <h3>Your session never leaves the tab</h3>
             <p>
-              Synthesis, WAV rendering, autosave, and sharing all run in the
-              browser. The share URL carries the entire session after the{" "}
-              <span className="mono">#</span> — a fragment the server never
+              Synthesis, WAV rendering, autosave, sharing, and widget embeds all
+              run in the browser. The share URL carries the entire session after
+              the <span className="mono">#</span> — a fragment the server never
               receives. No account. No wallet.
             </p>
           </article>
@@ -174,16 +172,16 @@ export default function LandingPage() {
             <span className="flow-num">3</span>
             <h4>Set Start → End</h4>
             <p className="small">
-              Two sliders per parameter. Untie them and the whole track
-              becomes one linear glide.
+              Two sliders per parameter. Untie them and the whole track becomes
+              one linear glide.
             </p>
           </div>
           <div className="flow-step reveal r8">
             <span className="flow-num">4</span>
             <h4>Press Start. Lock on.</h4>
             <p className="small">
-              Follow the jumping line while the beat runs. Export WAV, SBaGen,
-              or a private URL.
+              Follow the jumping line while the beat runs. Export WAV, SBaGen, a
+              private Studio URL, or an embeddable Widget URL.
             </p>
           </div>
         </section>

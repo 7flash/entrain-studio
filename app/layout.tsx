@@ -11,9 +11,7 @@ export default function RootLayout({ children }: { children: any }) {
       </head>
       <body>
         <style data-entrain-global-body>{GLOBAL_CSS}</style>
-        <div className="wrap">
-          {children}
-        </div>
+        <div className="wrap">{children}</div>
       </body>
     </html>
   );

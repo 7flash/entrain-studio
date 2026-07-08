@@ -139,8 +139,7 @@ function drawScenery(
   for (let i = 0; i <= N; i++) {
     const x = (i / N) * w;
     const y =
-      baseline -
-      envAt(p.type, ((i / N) * M) % 1, duty, edgeFrac) * envH * 0.85;
+      baseline - envAt(p.type, ((i / N) * M) % 1, duty, edgeFrac) * envH * 0.85;
     i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
   }
   ctx.strokeStyle = hexA(p.color, 0.24);

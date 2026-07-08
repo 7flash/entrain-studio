@@ -23,9 +23,10 @@ import { drawBeatScope, type BeatScopeParams } from "@/client/beat-scope";
 import {
   decodeSessionHash,
   decodeSessionFromString,
-  encodeSessionUrl,
+  encodeSourceUrl,
   type SharePayloadInfo,
 } from "@/client/session-codec";
+import { sbagenExportWarnings } from "@/format/sbagen";
 
 // ─── module state ────────────────────────────────────────────────────────────
 // Model: every layer has EXACTLY TWO keyframes — Start (tMin 0) and End
@@ -59,6 +60,7 @@ let selectedLayerId: string | null = null;
 let modal: null | "import" | "export" = null;
 let importText = "";
 let exportInfo: SharePayloadInfo | null = null;
+let widgetInfo: SharePayloadInfo | null = null;
 // UI-only tie state per layer×param: when tied, moving Start or End moves
 // both. Lazily initialized to "tied" when the two values are already equal.
 const tiedMap: Record<string, boolean> = {};
@@ -151,9 +153,7 @@ function App() {
       {session.layers.length ? (
         <>
           <Stack />
-          {sel ? (
-            <LayerEditor l={sel} key={`${sel.id}:${sel.type}`} />
-          ) : null}
+          {sel ? <LayerEditor l={sel} key={`${sel.id}:${sel.type}`} /> : null}
         </>
       ) : (
         <EmptyGuide />
@@ -406,7 +406,11 @@ function LayerEditor({ l }: { l: EntrainLayerV1; key?: string }) {
                 }}
               >
                 {["sine", "triangle", "sawtooth"].map((wv) => (
-                  <option value={wv} selected={wv === (l.wave || "sine")} key={wv}>
+                  <option
+                    value={wv}
+                    selected={wv === (l.wave || "sine")}
+                    key={wv}
+                  >
                     {wv}
                   </option>
                 ))}
@@ -616,8 +620,8 @@ function ImportModal() {
           </button>
         </div>
         <p className="small">
-          Paste an SBaGen script, ENTRAIN private URL, share capsule, or
-          session JSON. Importing replaces the current session.
+          Paste an SBaGen script, ENTRAIN private URL, share capsule, or session
+          JSON. Importing replaces the current session.
         </p>
         <textarea
           className="modal-textarea mono"
@@ -648,11 +652,14 @@ function ImportModal() {
 
 function ExportModal() {
   let sbagen = "";
+  let sbagenWarnings: string[] = [];
   try {
     sbagen = sessionToSbagenText(session);
+    sbagenWarnings = sbagenExportWarnings(session);
   } catch (e: any) {
     sbagen = `-- could not generate SBaGen: ${e?.message || e}`;
   }
+  const embed = widgetInfo ? iframeEmbedCode(widgetInfo.url) : "encoding…";
   return (
     <div className="modal-backdrop" onClick={backdropClose}>
       <div className="modal modal-wide">
@@ -664,10 +671,12 @@ function ExportModal() {
         </div>
         <div className="field">
           <label>
-            SBaGen script
+            SBaGen-compatible script
             <button
               className="act tiny ghostlink"
-              onClick={() => copyText(sbagen, "SBaGen script copied")}
+              onClick={() =>
+                copyText(sbagen, "SBaGen-compatible script copied")
+              }
             >
               copy
             </button>
@@ -680,15 +689,21 @@ function ExportModal() {
           >
             {sbagen}
           </textarea>
+          {sbagenWarnings.length ? (
+            <p className="small warntext">
+              SBaGen compatibility notes: {sbagenWarnings.join(" · ")}
+            </p>
+          ) : null}
         </div>
         <div className="field">
           <label>
-            Private share URL — payload after # never reaches the server
+            Studio URL — editable source, payload after # never reaches the
+            server
             <button
               className="act tiny ghostlink"
               disabled={!exportInfo}
               onClick={() =>
-                exportInfo && copyText(exportInfo.url, "share URL copied")
+                exportInfo && copyText(exportInfo.url, "Studio URL copied")
               }
             >
               copy
@@ -707,6 +722,46 @@ function ExportModal() {
               {exportInfo.urlSafe ? "URL-safe" : "large — prefer file export"}
             </span>
           ) : null}
+        </div>
+        <div className="field">
+          <label>
+            Widget URL — player-only page for iframe embeds
+            <button
+              className="act tiny ghostlink"
+              disabled={!widgetInfo}
+              onClick={() =>
+                widgetInfo && copyText(widgetInfo.url, "Widget URL copied")
+              }
+            >
+              copy
+            </button>
+          </label>
+          <input
+            className="mono"
+            readOnly
+            value={widgetInfo ? widgetInfo.url : "encoding…"}
+            data-val={widgetInfo ? widgetInfo.url : "encoding…"}
+          />
+        </div>
+        <div className="field">
+          <label>
+            Embed code
+            <button
+              className="act tiny ghostlink"
+              disabled={!widgetInfo}
+              onClick={() => widgetInfo && copyText(embed, "embed code copied")}
+            >
+              copy
+            </button>
+          </label>
+          <textarea
+            className="modal-textarea mono"
+            rows="4"
+            readOnly
+            data-val={embed}
+          >
+            {embed}
+          </textarea>
         </div>
         {sessionNeedsLocalFiles(session) ? (
           <p className="small warntext">
@@ -816,17 +871,27 @@ function openImport() {
 function openExport() {
   modal = "export";
   exportInfo = null;
+  widgetInfo = null;
   repaint();
   refreshExportUrl();
 }
 function refreshExportUrl() {
   if (modal !== "export") return;
-  encodeSessionUrl(session)
-    .then((info) => {
-      exportInfo = info;
+  const origin = location.origin;
+  Promise.all([
+    encodeSourceUrl(session, `${origin}/studio`),
+    encodeSourceUrl(session, `${origin}/widget`),
+  ])
+    .then(([studio, widget]) => {
+      exportInfo = studio;
+      widgetInfo = widget;
       if (modal === "export") repaint();
     })
     .catch(() => {});
+}
+function iframeEmbedCode(url: string) {
+  const safe = String(url).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+  return `<iframe src="${safe}" width="100%" height="420" style="border:0;border-radius:16px;overflow:hidden" allow="autoplay"></iframe>`;
 }
 function closeModal() {
   modal = null;
@@ -900,11 +965,11 @@ function EmptyGuide() {
       <div className="empty-orb" />
       <h2>Build from a steady carrier.</h2>
       <p className="small">
-        Carrier first, modulation second, arc third. Add a plain carrier,
-        listen for unwanted speaker beating on the exact playback device you
-        will use, then switch its type to isochronic trap and tune the beat.
-        Every layer glides linearly from its Start values to its End values
-        across the whole soundtrack.
+        Carrier first, modulation second, arc third. Add a plain carrier, listen
+        for unwanted speaker beating on the exact playback device you will use,
+        then switch its type to isochronic trap and tune the beat. Every layer
+        glides linearly from its Start values to its End values across the whole
+        soundtrack.
       </p>
       <div className="quick-grid starters">
         <button className="quick-card" onClick={() => applyStarter("carrier")}>
@@ -951,8 +1016,9 @@ function EmptyGuide() {
             are editing.
           </li>
           <li>
-            <b>Export</b> gives you the SBaGen script, a private share URL, and
-            a WAV render — all generated locally.
+            <b>Export</b> gives you SBaGen-compatible source, Studio and Widget
+            URLs, embeddable iframe code, and a WAV render — all generated
+            locally.
           </li>
         </ol>
       </details>
@@ -1146,7 +1212,10 @@ function AdditiveControls({ l }: { l: EntrainLayerV1 }) {
             const c = cur();
             if (!c) return;
             const ce = c.envelope || env;
-            c.envelope = { ...ce, attackMs: Number(e.currentTarget.value || 0) };
+            c.envelope = {
+              ...ce,
+              attackMs: Number(e.currentTarget.value || 0),
+            };
             repaint(true);
           }}
         />
@@ -1415,8 +1484,7 @@ function tieKey(l: EntrainLayerV1, key: string) {
 function tieOf(l: EntrainLayerV1, key: "beatHz" | "carrierHz" | "gainPct") {
   const k = tieKey(l, key);
   if (!(k in tiedMap))
-    tiedMap[k] =
-      Math.abs(seVal(l, key, "start") - seVal(l, key, "end")) < 1e-6;
+    tiedMap[k] = Math.abs(seVal(l, key, "start") - seVal(l, key, "end")) < 1e-6;
   return tiedMap[k];
 }
 function toggleTie(l: EntrainLayerV1, key: "beatHz" | "carrierHz" | "gainPct") {
@@ -2062,12 +2130,10 @@ function makePortableCopy() {
 // only set defaults; a dirtied input or a reused select keeps its old value
 // otherwise. Cheap: one query + string compare per control.
 function syncControlValues() {
-  document
-    .querySelectorAll<HTMLElement>("[data-val]")
-    .forEach((el: any) => {
-      const v = el.getAttribute("data-val") ?? "";
-      if (el.value !== v) el.value = v;
-    });
+  document.querySelectorAll<HTMLElement>("[data-val]").forEach((el: any) => {
+    const v = el.getAttribute("data-val") ?? "";
+    if (el.value !== v) el.value = v;
+  });
 }
 
 function repaint(rebuild = false) {
@@ -2123,6 +2189,7 @@ export default async function mount() {
     return null;
   });
   const handoff = sessionStorage.getItem("entrain:loaded-session");
+  const loadedScript = sessionStorage.getItem("entrain:loaded-script");
   const autosaved = localStorage.getItem("entrain:studio-autosave");
   if (shared) {
     session = shared;
@@ -2133,7 +2200,15 @@ export default async function mount() {
     );
   } else if (handoff) {
     session = sanitizeSession(JSON.parse(handoff));
+    sessionStorage.removeItem("entrain:loaded-session");
     afterSessionLoad("loaded soundtrack into studio");
+  } else if (loadedScript) {
+    const decoded = await decodeSessionFromString(loadedScript).catch(() =>
+      patternTextToSession(loadedScript),
+    );
+    session = sanitizeSession(decoded);
+    sessionStorage.removeItem("entrain:loaded-script");
+    afterSessionLoad("loaded source into studio");
   } else if (autosaved) {
     session = sanitizeSession(JSON.parse(autosaved));
     afterSessionLoad("restored local browser draft");

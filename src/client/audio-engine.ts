@@ -100,8 +100,7 @@ function nextBeatCrossing(
         d = need / Math.max(1e-6, bu);
       } else {
         const disc = bu * bu + 2 * s * need;
-        d =
-          disc > 0 ? (Math.sqrt(disc) - bu) / s : need / Math.max(1e-6, bu);
+        d = disc > 0 ? (Math.sqrt(disc) - bu) / s : need / Math.max(1e-6, bu);
         if (!(d > 0)) d = need / Math.max(1e-6, bu);
       }
       return uu + d;
@@ -115,6 +114,7 @@ function nextBeatCrossing(
 export function createAudioEngine(getSession: () => EntrainSessionV1) {
   let ctx: AudioContext | null = null;
   let graph: Graph | null = null;
+  let outputVolume = 1;
   const samples = new Map<string, AudioBuffer>();
 
   function scheduleParam(
@@ -515,7 +515,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       start = ctx.currentTime + delay,
       dur = opts.durSec || session.durationMin * 60;
     const master = ctx.createGain();
-    const peak = MIX.masterPeak;
+    const peak = MIX.masterPeak * outputVolume;
     const fadeIn = Math.max(0.02, Math.min(opts.fadeSec ?? 0.8, dur / 2));
     master.gain.setValueAtTime(0.0001, start);
     master.gain.linearRampToValueAtTime(peak, start + fadeIn);
@@ -657,6 +657,15 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
         patternSec: built.patternSec,
       };
     },
+    setVolume(value: number) {
+      outputVolume = clamp(Number(value), 0, 1);
+      if (graph)
+        graph.master.gain.setTargetAtTime(
+          MIX.masterPeak * outputVolume,
+          graph.ctx.currentTime,
+          0.025,
+        );
+    },
     stop() {
       if (!graph) return;
       const current = graph;
@@ -705,9 +714,7 @@ export function createAudioEngine(getSession: () => EntrainSessionV1) {
       const raw =
         graph.offsetSec + (graph.ctx.currentTime - lat - graph.startedAt);
       const clamped = Math.max(0, raw);
-      return graph.loopPattern
-        ? clamped
-        : Math.min(clamped, graph.patternSec);
+      return graph.loopPattern ? clamped : Math.min(clamped, graph.patternSec);
     },
     async loadSample(layerId: string, file: File) {
       ctx = ctx || new AudioContext();
@@ -980,7 +987,14 @@ function karplusPooled(
   let buf = karplusCache.get(key);
   if (!buf) {
     if (karplusCache.size > 96) karplusCache.clear();
-    buf = karplusBuffer(ctx, freq, seed + variant * 101, decay, brightness, lenSec);
+    buf = karplusBuffer(
+      ctx,
+      freq,
+      seed + variant * 101,
+      decay,
+      brightness,
+      lenSec,
+    );
     karplusCache.set(key, buf);
   }
   return buf;

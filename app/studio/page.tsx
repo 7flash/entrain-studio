@@ -8,8 +8,7 @@ export default function StudioPage() {
         </h1>
         <p className="lede">
           Build layered binaural, isochronic, ambience, and SBaGen-compatible
-          sessions in the same dark console style as the original single-page
-          ENTRAIN instrument.
+          sessions, then export a Studio URL, Widget URL, iframe embed, or WAV.
         </p>
       </section>
       <section className="console studio-root-console" id="studio-root">

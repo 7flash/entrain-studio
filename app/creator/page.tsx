@@ -1,16 +1,19 @@
 export default function CreatorPage() {
   return (
     <main>
-      <section className="hero">
-        <span className="pill unlocked">Creator</span>
-        <h1>Creator workspace</h1>
+      <section className="hero" style={{ paddingBottom: "14px" }}>
+        <span className="pill">Studio-only</span>
+        <h1>Creator profile removed</h1>
         <p>
-          Manage tracks you published into the public catalogue. Studio still
-          supports private source-link sharing without login; Google is only for
-          saved library and public publishing.
+          Publishing profiles are no longer needed. Build locally in Studio and
+          export a private URL or embeddable widget.
+        </p>
+        <p>
+          <a className="btn primary" href="/studio">
+            Open Studio
+          </a>
         </p>
       </section>
-      <section id="creator-root" />
     </main>
   );
 }

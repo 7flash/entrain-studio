@@ -357,19 +357,18 @@ export function sessionToSbagenText(input: any) {
   const s = sanitizeSession(input);
   const times = collectTimes(s).sort((a, b) => a - b);
   if (times.length < 2) times.push(s.durationMin);
+  const warnings = sbagenExportWarnings(s);
   const lines = [
     `# ENTRAIN SBaGen-compatible export`,
     `# ${s.name}`,
     `# Duration: ${s.durationMin} min`,
-    `# Supported tokens: pink/50 white/20 brown/30 and 100+4/50 binaural layers.`,
+    `# Canonical ENTRAIN sessions support more layer types than SBaGen.`,
+    `# Supported native SBaGen tokens here: noise, sample references, binaural carrier+beat.`,
   ];
-  const unsupported = s.layers.filter(
-    (l) => !["binaural", "noise", "sample"].includes(l.type),
-  );
-  if (unsupported.length)
-    lines.push(
-      `# Omitted unsupported ENTRAIN layer types: ${[...new Set(unsupported.map((l) => l.type))].join(", ")}`,
-    );
+  if (warnings.length) {
+    lines.push(`# Compatibility notes:`);
+    for (const w of warnings) lines.push(`# - ${w}`);
+  }
 
   times.forEach((t, i) => {
     const label = `s${i}`;
@@ -385,39 +384,95 @@ export function sessionToSbagenText(input: any) {
   return `${lines.join("\n")}\n`;
 }
 
+export function sbagenExportWarnings(input: any) {
+  const s = sanitizeSession(input);
+  const warnings: string[] = [];
+  const typeCounts = new Map<string, number>();
+  for (const l of s.layers)
+    typeCounts.set(l.type, (typeCounts.get(l.type) || 0) + 1);
+  const approximated = [
+    "monaural",
+    "iso-smooth",
+    "iso-trap",
+    "iso-hard",
+  ].filter((t) => typeCounts.has(t));
+  if (approximated.length)
+    warnings.push(
+      `${approximated.join(", ")} exported as binaural carrier+beat approximations; SBaGen cannot reproduce ENTRAIN's exact speaker/isochronic pulse envelopes.`,
+    );
+  const ambience = s.layers.filter((l) => l.type === "procedural-ambience");
+  if (ambience.length)
+    warnings.push(
+      `procedural ambience exported as static noise beds because SBaGen cannot reproduce seeded ambience recipes.`,
+    );
+  const omitted = ["carrier", "additive", "karplus"].filter((t) =>
+    typeCounts.has(t),
+  );
+  if (omitted.length)
+    warnings.push(
+      `${omitted.join(", ")} layer${omitted.length === 1 ? " is" : "s are"} documented in comments but omitted from SBaGen audio tokens.`,
+    );
+  if (s.layers.some((l) => l.type === "sample" && !l.sampleName))
+    warnings.push(
+      `empty sample layers were omitted because SBaGen needs a file name.`,
+    );
+  return warnings;
+}
+
 function collectTimes(s: EntrainSessionV1) {
   const set = new Set<number>([0, s.durationMin]);
   for (const l of s.layers)
-    for (const k of l.keyframes)
+    for (const k of l.keyframes || [])
       set.add(round(clamp(k.tMin, 0, s.durationMin), 4));
   return [...set];
 }
 function layerToSbagenAt(l: EntrainLayerV1, tMin: number) {
-  const gain = Math.round(valueAt(l.keyframes, "gainPct", tMin));
+  const gain = Math.round(valueAt(l.keyframes || [], "gainPct", tMin));
   if (gain <= 0) return [];
   if (l.type === "noise") return [`${l.noiseColor || "pink"}/${gain}`];
+  if (l.type === "procedural-ambience")
+    return [`${noiseForRecipe(l.ambienceRecipe)}/${gain}`];
   if (l.type === "sample" && l.sampleName)
     return [`${quoteIfNeeded(l.sampleName)} mix/${gain}`];
-  if (l.type !== "binaural") return [];
-  const carrier = round(l.carrierHz || 220, 3);
-  const beat = round(valueAt(l.keyframes, "beatHz", tMin) || 10, 3);
-  return [`${carrier}+${beat}/${gain}`];
+  if (
+    ["binaural", "monaural", "iso-smooth", "iso-trap", "iso-hard"].includes(
+      l.type,
+    )
+  ) {
+    const carrier = round(
+      valueAt(l.keyframes || [], "carrierHz", tMin, l.carrierHz || 220),
+      3,
+    );
+    const beat = round(
+      Math.max(0.01, valueAt(l.keyframes || [], "beatHz", tMin, 10)),
+      3,
+    );
+    return [`${carrier}+${beat}/${gain}`];
+  }
+  return [];
 }
-function valueAt(kfs: Keyframe[], key: "gainPct" | "beatHz", tMin: number) {
-  const pts = [...kfs].sort((a, b) => a.tMin - b.tMin);
-  if (!pts.length) return 0;
-  if (tMin <= pts[0].tMin) return Number(pts[0][key] || 0);
+function valueAt(
+  kfs: Keyframe[],
+  key: "gainPct" | "beatHz" | "carrierHz",
+  tMin: number,
+  fallback = key === "gainPct" ? 0 : key === "carrierHz" ? 220 : 10,
+) {
+  const pts = [...(kfs || [])].sort((a, b) => a.tMin - b.tMin);
+  if (!pts.length) return fallback;
+  const val = (p: any) => Number(p[key] ?? fallback);
+  if (tMin <= pts[0].tMin) return val(pts[0]);
   for (let i = 1; i < pts.length; i++) {
     if (tMin <= pts[i].tMin) {
       const a = pts[i - 1],
         b = pts[i];
       const f = (tMin - a.tMin) / Math.max(1e-9, b.tMin - a.tMin);
-      return (
-        Number(a[key] || 0) + (Number(b[key] || 0) - Number(a[key] || 0)) * f
-      );
+      return val(a) + (val(b) - val(a)) * f;
     }
   }
-  return Number(pts[pts.length - 1][key] || 0);
+  return val(pts[pts.length - 1]);
+}
+function noiseForRecipe(recipe: any) {
+  return String(recipe || "").includes("brown") ? "brown" : "pink";
 }
 function formatClock(min: number) {
   const total = Math.round(min * 60);
